@@ -1,0 +1,63 @@
+{
+  "nav": {
+    "logo": "CineBot",
+    "nowShowing": "Now showing",
+    "comingSoon": "Coming soon",
+    "cinema": "Our cinema",
+    "membership": "Membership",
+    "search": "Search movies",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "main": "Main"
+  },
+  "footer": {
+    "addressLabel": "Address",
+    "hotlineLabel": "Hotline",
+    "cinemaDetails": "See cinema details",
+    "findBooking": "Find my booking",
+    "adminDemo": "Admin demo"
+  },
+  "language": {
+    "label": "Language",
+    "vi": "Tiếng Việt",
+    "en": "English"
+  },
+  "placeholder": {
+    "body": "This screen will be filled in by a later step."
+  },
+  "loading": "Loading",
+  "demoDisclaimer": "Portfolio demo – test payments only",
+  "skipToContent": "Skip to content",
+  "auth": {
+    "signIn": "Sign in"
+  },
+  "admin": {
+    "badge": "ADMIN",
+    "panel": "Admin",
+    "viewPublic": "View public site",
+    "signOut": "Sign out"
+  },
+  "pages": {
+    "home": "Home",
+    "movieDetail": "Movie",
+    "booking": "Booking",
+    "checkout": "Checkout",
+    "paymentResult": "Payment result",
+    "demoPay": "Demo Pay",
+    "lookup": "Find my booking",
+    "membership": "Membership",
+    "cinema": "Our cinema",
+    "account": "Account",
+    "notFound": "Page not found",
+    "adminLogin": "Admin sign in",
+    "adminDashboard": "Dashboard",
+    "adminMovies": "Movies",
+    "adminRooms": "Rooms",
+    "adminShowtimes": "Showtimes",
+    "adminTemplates": "Templates",
+    "adminPricing": "Pricing",
+    "adminSnacks": "Snacks",
+    "adminBookings": "Bookings",
+    "adminAuditLog": "Audit log"
+  }
+}
