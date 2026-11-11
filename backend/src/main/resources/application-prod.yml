@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      url: ${REDIS_URL}
+cinebot:
+  demo-mode: false
+  jwt-secret: ${JWT_SECRET}
+  frontend-origin: ${APP_PUBLIC_URL}
+  api-public-url: ${API_PUBLIC_URL}
