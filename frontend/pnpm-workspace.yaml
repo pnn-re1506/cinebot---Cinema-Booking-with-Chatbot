@@ -13,6 +13,9 @@ supportedArchitectures:
     - musl
 # Refuse packages published < 7 days ago, matching the root pnpm-workspace.yaml.
 minimumReleaseAge: 10080
+overrides:
+  vite: 6.3.5
 allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
+  msw: true
