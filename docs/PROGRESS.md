@@ -3,7 +3,7 @@
 | Item | Value |
 | --- | --- |
 | Last updated | 2026-11-11 |
-| Current phase | **Phase 0 – Foundations / Wave 0** (W0-1, W0-2, W0-3 merged; G0 waits for CI on GitHub) |
+| Current phase | **Phase 0 done (G0 passed)** – Wave 1 next |
 | Overall v1 progress | Documentation done; backend and frontend skeletons merged; features 0% |
 
 How to use this file (`ER-23`):
@@ -31,7 +31,7 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done · ⏸ deferred
 
 | Phase | Name | Agent wave / tasks | Status |
 | --- | --- | --- | --- |
-| 0 | Foundations | Wave 0: W0-1, W0-2, W0-3 | 🟨 (CI on GitHub pending) |
+| 0 | Foundations | Wave 0: W0-1, W0-2, W0-3 | ✅ |
 | 1 | Catalogue and schedule | Wave 1: B1, B2, B3, F1, F2 | ⬜ |
 | 2 | Authentication | Wave 1: B4, F3 | ⬜ |
 | 3 | Seat selection and holds (Redis) | Wave 2: B5a, B5b, F4 | ⬜ |
@@ -46,7 +46,7 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done · ⏸ deferred
 
 | Gate | Status | Notes |
 | --- | --- | --- |
-| G0 – contract frozen, skeletons green | 🟨 | Both branches merged; `mvnw verify` (20 tests) and the frontend checks (31 tests) pass locally on `main`. Waiting for GitHub Actions after push |
+| G0 – contract frozen, skeletons green | ✅ 2026-11-11 | Both branches merged; `mvnw verify` (20 tests) and the frontend checks (31 tests) pass locally and in GitHub Actions |
 | G1 – domain, catalogue, auth | ⬜ | |
 | G2 – booking core + security review | ⬜ | |
 | G3 – payment, tickets, membership + security review | ⬜ | |
@@ -57,7 +57,7 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done · ⏸ deferred
 
 ## 3. Phase Checklists
 
-### Phase 0 – Foundations ⬜
+### Phase 0 – Foundations ✅
 
 Contract (W0-1) ✅
 - [x] `docs/api/openapi.yaml` v1.0.0 covering every v1 endpoint (public, booking, payment, auth, account, admin), with examples and error codes (`ER-24`). Redocly lint clean; `openapi-typescript` generates types.
@@ -86,7 +86,7 @@ Frontend (W0-3) ✅
 
 Repo
 - [x] Commit docs and `.cursor/rules` before launching any agent
-- [ ] GitHub Actions CI green: backend tests (Testcontainers) + frontend lint, typecheck, test, build (workflows committed; runs after push)
+- [x] GitHub Actions CI green: backend tests (Testcontainers) + frontend lint, typecheck, test, build
 - [x] Root `README.md` with how to run locally
 
 *Done when:* `docker compose up`, the backend and `pnpm dev` all run locally; CI is green; contract tagged `contract-v1.0.0`.
