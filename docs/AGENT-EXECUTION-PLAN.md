@@ -207,7 +207,7 @@ Paths are abbreviated. `BE` means `backend/src/main/java/com/cinebot/`, `BT` mea
     - `IntegrationTestBase` with reusable Testcontainers (PostgreSQL + Redis);
     - `SharedFixtures`, which reads `../shared/fixtures`.
   - **Smoke tests:** context loads, Flyway applies, and `ProblemDetail` has the right shape.
-  - **Delivery files:** `.github/workflows/backend.yml` and `.env.example`.
+  - **Delivery files:** `.github/workflows/backend.yml`, `.env.example`, and a root `.gitattributes` (`* text=auto`, with `eol=lf` for `mvnw`, `*.sh` and `*.lua`, so Linux CI can run the wrapper).
 - **Done when:** `mvnw verify` passes and `/v3/api-docs` and `/actuator/health` (PostgreSQL + Redis) respond.
 
 #### W0-3 Frontend skeleton
