@@ -1,11 +1,42 @@
+# CineBot frontend
 
-  # Cinema Booking Website Prototype (Community)
+Vite + React 18 + TypeScript SPA for the cinema booking demo.
 
-  This is a code bundle for Cinema Booking Website Prototype (Community). The original project is available at https://www.figma.com/design/NStbrwFlelEoXDPucpz8mY/Cinema-Booking-Website-Prototype--Community-.
+## Run
 
-  ## Running the code
+```powershell
+cd frontend
+pnpm install
+pnpm dev
+```
 
-  Run `npm i` to install the dependencies.
+The dev server proxies `/api` to `http://localhost:8080`.
 
-  Run `npm run dev` to start the development server.
-  
+### Mocks
+
+Start with MSW instead of the backend:
+
+```powershell
+$env:VITE_USE_MOCKS = "true"
+pnpm dev
+```
+
+On macOS or Linux, use `VITE_USE_MOCKS=true pnpm dev`. Handler files live in `src/mocks/handlers/` and start empty; feature tasks fill them in. The service worker is `public/mockServiceWorker.js`.
+
+## API types
+
+Regenerate `src/lib/api/schema.d.ts` after an integrator updates the contract:
+
+```powershell
+pnpm gen:api
+```
+
+## Checks
+
+```powershell
+pnpm lint
+pnpm typecheck
+pnpm test --run
+pnpm build
+pnpm format
+```

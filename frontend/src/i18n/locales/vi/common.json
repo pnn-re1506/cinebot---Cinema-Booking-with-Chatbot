@@ -1,0 +1,63 @@
+{
+  "nav": {
+    "logo": "CineBot",
+    "nowShowing": "Đang chiếu",
+    "comingSoon": "Sắp chiếu",
+    "cinema": "Rạp của chúng tôi",
+    "membership": "Hội viên",
+    "search": "Tìm phim",
+    "openMenu": "Mở menu",
+    "closeMenu": "Đóng menu",
+    "main": "Điều hướng chính"
+  },
+  "footer": {
+    "addressLabel": "Địa chỉ",
+    "hotlineLabel": "Hotline",
+    "cinemaDetails": "Xem thông tin rạp",
+    "findBooking": "Tìm vé của tôi",
+    "adminDemo": "Admin demo"
+  },
+  "language": {
+    "label": "Ngôn ngữ",
+    "vi": "Tiếng Việt",
+    "en": "English"
+  },
+  "placeholder": {
+    "body": "Nội dung màn hình này sẽ được bổ sung ở các bước sau."
+  },
+  "loading": "Đang tải",
+  "demoDisclaimer": "Bản demo portfolio – chỉ thanh toán thử",
+  "skipToContent": "Chuyển tới nội dung",
+  "auth": {
+    "signIn": "Đăng nhập"
+  },
+  "admin": {
+    "badge": "ADMIN",
+    "panel": "Khu vực quản trị",
+    "viewPublic": "Xem trang công khai",
+    "signOut": "Đăng xuất"
+  },
+  "pages": {
+    "home": "Trang chủ",
+    "movieDetail": "Chi tiết phim",
+    "booking": "Đặt vé",
+    "checkout": "Thanh toán",
+    "paymentResult": "Kết quả thanh toán",
+    "demoPay": "Thanh toán thử",
+    "lookup": "Tìm vé",
+    "membership": "Hội viên",
+    "cinema": "Rạp chiếu",
+    "account": "Tài khoản",
+    "notFound": "Không tìm thấy trang",
+    "adminLogin": "Đăng nhập quản trị",
+    "adminDashboard": "Tổng quan",
+    "adminMovies": "Phim",
+    "adminRooms": "Phòng chiếu",
+    "adminShowtimes": "Suất chiếu",
+    "adminTemplates": "Mẫu suất chiếu",
+    "adminPricing": "Giá vé",
+    "adminSnacks": "Bắp nước",
+    "adminBookings": "Đơn đặt vé",
+    "adminAuditLog": "Nhật ký"
+  }
+}
