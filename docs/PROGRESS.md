@@ -3,8 +3,8 @@
 | Item | Value |
 | --- | --- |
 | Last updated | 2026-11-11 |
-| Current phase | **Phase 0 – Foundations / Wave 0** (W0-1 done; W0-2 and W0-3 next) |
-| Overall v1 progress | Documentation done, all v1 decisions confirmed; implementation 0% |
+| Current phase | **Phase 0 – Foundations / Wave 0** (W0-1, W0-2, W0-3 merged; G0 waits for CI on GitHub) |
+| Overall v1 progress | Documentation done; backend and frontend skeletons merged; features 0% |
 
 How to use this file (`ER-23`):
 - Tick a task only when it is merged to `main` with tests passing.
@@ -18,9 +18,9 @@ How to use this file (`ER-23`):
 
 | Area | State |
 | --- | --- |
-| Frontend | Figma Make prototype: Vite + React 18 + Tailwind v4 + shadcn/ui; everything in `src/app/App.tsx` (~1,500 lines), mock data, London/£ theme, no routing or API |
-| Backend | Empty (`backend/.gitkeep`) |
-| Database / cache | None (target: PostgreSQL 16 + Redis 7) |
+| Frontend | Skeleton (W0-3): TypeScript strict, every route as a placeholder, API client, i18n `vi`/`en`, MSW, design tokens; 31 tests. Prototype kept in `frontend/prototype/` as reference |
+| Backend | Skeleton (W0-2): Spring Boot 3.5.16, module packages, ports with fallbacks, security matrix, ProblemDetail errors, rate limiter, ShedLock; 20 tests |
+| Database / cache | `V1__schema.sql` (full v1 schema + initial pricing policy); `docker-compose.yml` with PostgreSQL 16 + Redis 7 |
 | Docs | `PRD.md`, `ARCHITECTURE.md`, `DESIGN.md`, `RULES.md`, `PROGRESS.md`, `IMPLEMENTATION-PLAN.md`, `AGENT-EXECUTION-PLAN.md`. Earlier drafts: `PRD-CinemaBooking.md`, `frontend_review.md` |
 | Agent rules | `.cursor/rules/*.mdc` (core, backend, Redis seat holds, migrations, frontend, testing) |
 | Deployment | None |
@@ -31,7 +31,7 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done · ⏸ deferred
 
 | Phase | Name | Agent wave / tasks | Status |
 | --- | --- | --- | --- |
-| 0 | Foundations | Wave 0: W0-1, W0-2, W0-3 | ⬜ |
+| 0 | Foundations | Wave 0: W0-1, W0-2, W0-3 | 🟨 (CI on GitHub pending) |
 | 1 | Catalogue and schedule | Wave 1: B1, B2, B3, F1, F2 | ⬜ |
 | 2 | Authentication | Wave 1: B4, F3 | ⬜ |
 | 3 | Seat selection and holds (Redis) | Wave 2: B5a, B5b, F4 | ⬜ |
@@ -46,7 +46,7 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done · ⏸ deferred
 
 | Gate | Status | Notes |
 | --- | --- | --- |
-| G0 – contract frozen, skeletons green | ⬜ | Commit docs and `.cursor/rules` first |
+| G0 – contract frozen, skeletons green | 🟨 | Both branches merged; `mvnw verify` (20 tests) and the frontend checks (31 tests) pass locally on `main`. Waiting for GitHub Actions after push |
 | G1 – domain, catalogue, auth | ⬜ | |
 | G2 – booking core + security review | ⬜ | |
 | G3 – payment, tickets, membership + security review | ⬜ | |
@@ -64,30 +64,30 @@ Contract (W0-1) ✅
 - [x] `shared/fixtures/orphan-rule-cases.json` (30), `pricing-cases.json` (35), `membership-cases.json` (10 scenarios) (`ER-20`). Cross-checked with a reference implementation: 102/102 checks consistent.
 - [x] Owner approved the contract and D-027…D-030; tagged `contract-v1.0.0`
 
-Backend (W0-2)
-- [ ] Spring Boot project (Java 21, Maven) with the module packages from `ARCHITECTURE.md` §4 and every dependency
-- [ ] `docker-compose.yml` with PostgreSQL 16 and Redis 7 (AOF); profiles `local`, `test`, `demo`, `prod`
-- [ ] Flyway `V1__schema.sql` with the full v1 schema (`ARCHITECTURE.md` §5.2), including `sold_seats` and the extension columns (`bookings.channel`, `users.role` with `STAFF`, ticket check-in fields)
-- [ ] `ProblemDetail` error handling with every error code (`ARCHITECTURE.md` §9.2)
-- [ ] `Clock` bean, `Accept-Language` locale resolver, springdoc Swagger UI
-- [ ] `SecurityConfig` with the full authorization matrix (`ARCHITECTURE.md` §7.4)
-- [ ] Cross-module ports (`SeatInventory`, `PricingService`, `BookingService`, …)
-- [ ] Redis config, `LuaScriptRegistry`, Bucket4j (Redis), ShedLock (Redis)
-- [ ] Testcontainers base class (PostgreSQL + Redis); shared fixture reader
-- [ ] `.env.example` (`ARCHITECTURE.md` §12)
+Backend (W0-2) ✅
+- [x] Spring Boot 3.5.16 project (Java 21, Maven wrapper) with the module packages from `ARCHITECTURE.md` §4 and every dependency
+- [x] `docker-compose.yml` with PostgreSQL 16 and Redis 7 (AOF); profiles `local`, `test`, `demo`, `prod`
+- [x] Flyway `V1__schema.sql` with the full v1 schema (`ARCHITECTURE.md` §5.2), including `sold_seats` and the extension columns (`bookings.channel`, `users.role` with `STAFF`, ticket check-in fields)
+- [x] `ProblemDetail` error handling with every error code (`ARCHITECTURE.md` §9.2)
+- [x] `Clock` bean, `Accept-Language` locale resolver, springdoc Swagger UI, `Instant` serialized with `+07:00`
+- [x] `SecurityConfig` with the full authorization matrix (`ARCHITECTURE.md` §7.4)
+- [x] Cross-module ports from `AGENT-EXECUTION-PLAN.md` §8, each with a `@Fallback` bean
+- [x] Redis config, `LuaScriptRegistry`, Bucket4j (Redis), ShedLock (Redis)
+- [x] Testcontainers base class (PostgreSQL + Redis); shared fixture reader
+- [x] `.env.example` (`ARCHITECTURE.md` §12), `.gitattributes`
 
-Frontend (W0-3)
-- [ ] Remove the Figma asset plugin and unused dependencies (`@mui/*`, `@emotion/*`, `react-slick`, `react-dnd`, …); add every needed dependency
-- [ ] Structure from `ARCHITECTURE.md` §11; every route from `DESIGN.md` §7.1 with placeholder pages; prototype moved to `frontend/prototype/`
-- [ ] Generated API types; axios client (all headers, single-flight refresh); `X-Client-Id`
-- [ ] i18n with per-feature namespace files (`ER-16`) and `LanguageSwitcher`; MSW with per-feature handlers
-- [ ] Apply design-token fixes: contrast (`DESIGN.md` §3.3), new tokens (§3.2), type classes (§4.2)
-- [ ] Verify Vietnamese font support; switch the body/mono fonts if needed (`DESIGN.md` §4.1)
+Frontend (W0-3) ✅
+- [x] Remove the Figma asset plugin and unused dependencies (`@mui/*`, `@emotion/*`, `react-slick`, `react-dnd`, …); add every needed dependency
+- [x] Structure from `ARCHITECTURE.md` §11; every route from `DESIGN.md` §7.1 with placeholder pages; prototype moved to `frontend/prototype/`
+- [x] Generated API types; axios client (all headers, single-flight refresh); `X-Client-Id`
+- [x] i18n with per-feature namespace files (`ER-16`) and `LanguageSwitcher`; MSW with per-feature handlers
+- [x] Apply design-token fixes: contrast (`DESIGN.md` §3.3), new tokens (§3.2), type classes (§4.2)
+- [x] Vietnamese fonts: Barlow Condensed (display), Be Vietnam Pro (body), JetBrains Mono, all with the `vietnamese` subset
 
 Repo
-- [ ] Commit docs and `.cursor/rules` before launching any agent
-- [ ] GitHub Actions CI: backend tests (Testcontainers) + frontend lint, typecheck, test, build
-- [ ] Root `README.md` with how to run locally
+- [x] Commit docs and `.cursor/rules` before launching any agent
+- [ ] GitHub Actions CI green: backend tests (Testcontainers) + frontend lint, typecheck, test, build (workflows committed; runs after push)
+- [x] Root `README.md` with how to run locally
 
 *Done when:* `docker compose up`, the backend and `pnpm dev` all run locally; CI is green; contract tagged `contract-v1.0.0`.
 
@@ -215,6 +215,9 @@ Prerequisites already in v1: ticket `qr_token`/`status`/`checked_in_at`/`admits`
 | D-028 | 2026-11-11 | Snack quantity 1–10 per line, max 20 lines (`BR-19a`); password 8–72 chars with a letter and a digit; VN mobile phone pattern | Confirmed by owner |
 | D-029 | 2026-11-11 | New error codes `INVALID_CREDENTIALS`, `EMAIL_TAKEN`, `RESOURCE_IN_USE`, `CUSTOMER_INFO_REQUIRED`, `INTERNAL_ERROR`; payment start returns 503 when Redis is down | Accepted (W0-1) |
 | D-030 | 2026-11-11 | A `PENDING_PAYMENT` booking cannot start a second payment (409); it returns to `HOLDING` only via a failed IPN, reconciliation, or a Demo Pay failure | Accepted (W0-1) |
+| D-031 | 2026-11-11 | Rate limits (operational, `cinebot.rate-limits.*`): login 10/min per IP, register 5/min per IP, booking lookup 5/min per IP (`BR-21`), hold creation 20/min per owner | Proposed by integrator; owner may change |
+| D-032 | 2026-11-11 | Spring Boot 3.5.x (not 4.x) for library compatibility (springdoc, ShedLock, Bucket4j); pnpm 12.4.2, Node 22 | Accepted (W0-2, W0-3) |
+| D-033 | 2026-11-11 | Schema details beyond §5.2: CHECKs on booking code length 8, `tickets.admits` in (1, 2), email types, discount day Mon–Fri, locales `vi`/`en`; `booking_snacks` PK `(booking_id, snack_id)`; FK lookup indexes | Accepted at G0 |
 
 ## 5. Open Questions
 
@@ -228,6 +231,7 @@ Prerequisites already in v1: ticket `qr_token`/`status`/`checked_in_at`/`admits`
 | Q6 | Chatbot LLM provider and monthly budget | Phase 8 |
 | Q7 | Hosting choice (sleep vs paid always-on), Redis provider (Upstash or host add-on) and domain name | Phase 7 / Wave 5 |
 | Q8 | Delete or archive the earlier drafts `PRD-CinemaBooking.md` and `frontend_review.md`? | Any time |
+| Q9 | Cinema name, street address and hotline for the seed `cinemas` row (shown in the footer and on `/cinema`); real or fictional demo values? | Wave 1 (B2) |
 
 ## 6. Risks
 
@@ -246,6 +250,7 @@ Prerequisites already in v1: ticket `qr_token`/`status`/`checked_in_at`/`admits`
 
 | Date | Change |
 | --- | --- |
+| 2026-11-11 | **W0-2 and W0-3 merged.** Backend skeleton (Spring Boot 3.5.16, V1 schema, ports with fallbacks, security, Redis infrastructure, 20 tests) and frontend skeleton (TypeScript, routes, API client, i18n, MSW, tokens and fonts, 31 tests). Added root `README.md`. Doc updates: `AGENT-EXECUTION-PLAN.md` §1.2 (pnpm 12, Node 22), W0-2 card, §8 record fields and fallback values; `ARCHITECTURE.md` §6.2 (rate-limit and ShedLock keys), §12 (profiles). D-031…D-033, Q9. |
 | 2026-11-11 | **W0-1 done.** Added `docs/api/openapi.yaml` (v1.0.0), `docs/api/README.md`, `redocly.yaml`, and the three shared fixture files. Clarified `BR-17`, `BR-18`, `BR-19a`, `BR-20`; added error codes to `ARCHITECTURE.md` §9.2 (D-027…D-030). |
 | 2026-11-11 | **Redis seat holds.** Owner confirmed all v1 decisions and chose Redis for holds. Updated `IMPLEMENTATION-PLAN.md` (rewritten), `ARCHITECTURE.md` (§6 rewritten, `sold_seats`, Redis everywhere, ADR 002/003/003a/010), `RULES.md` (BR-07, BR-09–BR-11, BR-19 rounding, ER-09, ER-10, ER-10a, ER-14, ER-16, ER-20, ER-21, ER-24, ER-25), `PRD.md` (confirmed values, FR-BKG-06a, NFRs), `DESIGN.md` (inventory-unavailable state, room-level blocked seats). Added `AGENT-EXECUTION-PLAN.md` and `.cursor/rules/*.mdc`. |
 | 2026-11-11 | Created `PRD.md`, `ARCHITECTURE.md`, `DESIGN.md`, `RULES.md`, `PROGRESS.md` from the planning discussion. Tightened the `BR-08` exception (contiguous selection) and corrected orphan test case 7. |

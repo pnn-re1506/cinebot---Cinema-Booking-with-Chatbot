@@ -37,8 +37,8 @@ Parallel agents fail in three predictable ways: they make conflicting assumption
 | --- | --- | --- |
 | JDK | 21 | Backend (`mvnw.cmd`) |
 | Docker Desktop | running | Testcontainers (PostgreSQL 16, Redis 7) and `docker compose` |
-| Node.js | 20 LTS or newer | Frontend |
-| pnpm | 9 | Frontend package manager (one lockfile: `pnpm-lock.yaml`) |
+| Node.js | 22 | Frontend |
+| pnpm | 12.4.2 (`packageManager` field) | Frontend package manager (one lockfile: `pnpm-lock.yaml`). Settings live in `frontend/pnpm-workspace.yaml`: `minimumReleaseAge` 7 days, `overrides`, `allowBuilds` (pnpm 12 ignores `package.json` `pnpm.overrides`). |
 | Git | recent | Worktrees |
 
 ### 1.3 Verification commands (every task, every gate)
@@ -181,9 +181,9 @@ Paths are abbreviated. `BE` means `backend/src/main/java/com/cinebot/`, `BT` mea
 - **Owns:** `backend/**` and `docker-compose.yml`.
 - **Deliverables:**
   - **Project setup:**
-    - Maven wrapper project, Java 21, Spring Boot latest stable;
+    - Maven wrapper project, Java 21, Spring Boot 3.5.x (D-032);
     - every dependency from `ARCHITECTURE.md` §2;
-    - Spotless or Checkstyle configuration.
+    - no formatter or Checkstyle plugin (decided at launch).
   - **`docker-compose.yml`:** `postgres:16` and `redis:7` with `--appendonly yes`.
   - **Configuration:** `application.yml` with the profiles `local`, `test`, `demo` and `prod`.
   - **Packages:** every module from `ARCHITECTURE.md` §4.1, each with `api/application/domain/infra` and a `package-info.java`.
@@ -195,7 +195,7 @@ Paths are abbreviated. `BE` means `backend/src/main/java/com/cinebot/`, `BT` mea
   - **Security:** `SecurityConfig` with the full authorization matrix, a JWT decoder/encoder (HS256 from an environment variable), CORS and same-site cookie settings.
   - **Ports:** exactly the interfaces and records of the port catalogue (§8), with Javadoc and no logic, plus one `@Fallback` bean per port.
   - **No JPA entities:** entities and repositories belong to the feature tasks. `ddl-auto=validate` passes with no entities.
-  - **Shared value types:** `TicketType`, `DayType`, `BookingStatus`, `Channel` and `SeatRef`.
+  - **Shared value types:** the enums in `common.domain` (`TicketType`, `DayType`, `SeatType`, `BookingStatus`, `Channel`, …). Seats are referenced by `long` id; there is no `SeatRef` type.
   - **Redis infrastructure:**
     - Lettuce `StringRedisTemplate`;
     - `LuaScriptRegistry`, which loads `classpath:redis/*.lua` via `EVALSHA`;
@@ -671,14 +671,15 @@ These Java interfaces are the only way modules call each other (`ER-02`). W0-2 c
 | `schedule.application.ScheduleQueryService` | `Optional<ShowtimeInfo> findShowtime(long showtimeId)` → `(id, movieId, roomId, Instant startsAt, Instant endsAt, ShowtimeStatus status)` | B3 |
 | `schedule.application.ShowtimeOccupancy` | `Map<Long,Integer> unavailableUnits(Collection<Long> showtimeIds)` (sold + held); `void simulateWalkIn(long showtimeId, long roomId, int percent, long seed)` (no orphans, `BR-26`) | **B3**, inside `booking/infra/occupancy/**` (booking owns `sold_seats`) |
 | `pricing.application.PricingService` | `PriceQuote quote(Instant startsAt)` → `(policyId, DayType, adult, student, couple, holdMinutes, pointsRatePct, vipThresholdPoints, vipSnackDiscountPct)` | B1 (whole `pricing` module) |
-| `booking.application.SeatInventory` | `void ensureSoldLoaded(showtimeId, Supplier<Set<Long>> soldFromDb, Instant expireAt)`; `InventorySnapshot snapshot(showtimeId, Set<String> rows, Set<Long> seatIds)`; `CommitResult commitHold(showtimeId, UUID bookingId, Map<Long,String> seatRows, Map<String,Long> expectedVersions, Duration ttl)`; `int releaseHold(showtimeId, bookingId, Map<Long,String> seatRows)`; `boolean extendHold(showtimeId, bookingId, Set<Long> seatIds, Duration ttl)`; `ClaimResult claimForSale(showtimeId, bookingId, Set<Long> seatIds, Duration ttl)`; `void markSold(showtimeId, bookingId, Map<Long,String> seatRows)`; `long heldCount(long showtimeId)`; `void invalidateSold(long showtimeId)`. Errors: `SeatInventoryUnavailableException`. | B5a |
+| `booking.application.SeatInventory` | `void ensureSoldLoaded(showtimeId, Supplier<Set<Long>> soldFromDb, Instant expireAt)`; `InventorySnapshot snapshot(showtimeId, Set<String> rows, Set<Long> seatIds)`; `CommitResult commitHold(showtimeId, UUID bookingId, Map<Long,String> seatRows, Map<String,Long> expectedVersions, Duration ttl)`; `int releaseHold(showtimeId, bookingId, Map<Long,String> seatRows)`; `boolean extendHold(showtimeId, bookingId, Set<Long> seatIds, Duration ttl)`; `ClaimResult claimForSale(showtimeId, bookingId, Set<Long> seatIds, Duration ttl)`; `void markSold(showtimeId, bookingId, Map<Long,String> seatRows)`; `long heldCount(long showtimeId)`; `void invalidateSold(long showtimeId)`. Records: `InventorySnapshot(Set<Long> soldSeatIds, Map<Long,String> holders /* seat id → booking id */, Map<String,Long> rowVersions)`; sealed `CommitResult` = `Ok` / `VersionChanged` / `SeatSold(Set<Long>)` / `SeatHeld(Set<Long>)`; sealed `ClaimResult` = `Ok` / `Taken(Set<Long>)`. Errors: `SeatInventoryUnavailableException`. | B5a |
 | `user.application.UserQueryService` | `Optional<UserContact> findContact(long userId)` → `(fullName, phone, email, Locale preferredLocale)` | B4 |
-| `ticket.application.TicketService` | `List<IssuedTicket> issue(UUID bookingId)`; `void voidTickets(UUID bookingId)` | B7 |
+| `ticket.application.TicketService` | `List<IssuedTicket> issue(UUID bookingId)` → `IssuedTicket(id, bookingId, seatId, TicketType ticketType, int admits, qrToken, TicketStatus status)`; `void voidTickets(UUID bookingId)` | B7 |
 | `membership.application.MembershipService` | `long earn(long userId, UUID bookingId, long ticketSubtotal, Instant at)`; `void reverse(UUID bookingId, Instant at)`; `int snackDiscountPct(Long userIdOrNull, Instant at)` | B8 |
 | `notification.application.NotificationService` | `void enqueue(EmailMessage msg)` → `(EmailType type, String to, Locale locale, Map<String,Object> model)`; `EmailType`: `BOOKING_CONFIRMED`, `VIP_GRANTED`, `VIP_RENEWED`, `VIP_LAPSED` | B7 |
 
 **Fallbacks.** So the application starts at every gate, W0-2 also creates one `@Fallback` bean (Spring Framework 6.2+) per port in `common/fallback/`:
-- Safe reads return neutral values: `heldCount` = 0, `snackDiscountPct` = 0, `unavailableUnits` = sold count only.
+- Safe reads return neutral values: `heldCount` = 0, `snackDiscountPct` = 0, `unavailableUnits` = 0 for every id (W0-2 has no repositories to count sold seats).
+- Each fallback is annotated `@Component` and `@Fallback` (`@Fallback` alone does not register a bean).
 - Writes throw: `SeatInventoryUnavailableException` for inventory, `UnsupportedOperationException("<port> not implemented yet (task <ID>)")` for the others.
 
 The implementing task **deletes its fallback file** (it owns that file).

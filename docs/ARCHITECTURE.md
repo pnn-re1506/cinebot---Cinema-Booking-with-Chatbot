@@ -287,6 +287,8 @@ All keys of one showtime share the hash tag `{st:<showtimeId>}`, so multi-key Lu
 | `cb:{st:42}:sold:ready` | string | showtime end + 1 day | Mirror has been loaded |
 | `cb:holdowner:<ownerKey>` | string `<showtimeId>:<bookingId>` | hold TTL | One active hold per owner (`BR-10`) |
 | channel `cb:seat-events:<showtimeId>` | pub/sub | — | `HELD`, `RELEASED`, `SOLD` events |
+| `cb:rl:<policy>:<key>` | Bucket4j state | bucket refill time | Rate limits (`ER-14`) |
+| `cb:lock:<environment>:<jobName>` | string | `lockAtMostFor` | ShedLock (the Redis provider inserts the environment) |
 
 `ownerKey` is `u:<userId>` for members and `c:<clientId>` for guests (the `X-Client-Id` header, §7.3).
 
@@ -683,7 +685,7 @@ src/
 
 Business values (prices, hold minutes, VIP threshold…) live in `pricing_policies`, not in environment variables, so admin can change them (`[Config]` in `RULES.md`).
 
-Profiles: `local` (Docker Compose PostgreSQL + Redis, Mock payment by default), `test` (Testcontainers PostgreSQL + Redis), `prod`.
+Profiles: `local` (Docker Compose PostgreSQL + Redis, Mock payment by default), `test` (Testcontainers PostgreSQL + Redis), `demo`, `prod`. The committed `local` profile is a second document inside `application.yml`; `application-local.yml` stays git-ignored for personal overrides. Rate-limit capacities are operational settings in `cinebot.rate-limits.*` (D-031), not business values.
 
 ## 13. Testing Strategy
 
