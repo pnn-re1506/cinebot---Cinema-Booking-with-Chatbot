@@ -193,10 +193,8 @@ Paths are abbreviated. `BE` means `backend/src/main/java/com/cinebot/`, `BT` mea
     - a `Clock` bean and the `Accept-Language` locale resolver;
     - id generation and the booking-code generator.
   - **Security:** `SecurityConfig` with the full authorization matrix, a JWT decoder/encoder (HS256 from an environment variable), CORS and same-site cookie settings.
-  - **Ports**, as interfaces with Javadoc and no logic:
-    - `CatalogQueryService`, `ScheduleQueryService`, `PricingService`;
-    - `SeatInventory` and `SelectionValidator`;
-    - `BookingService`, `TicketService`, `MembershipService`, `NotificationService`, `PaymentGateway`.
+  - **Ports:** exactly the interfaces and records of the port catalogue (§8), with Javadoc and no logic, plus one `@Fallback` bean per port.
+  - **No JPA entities:** entities and repositories belong to the feature tasks. `ddl-auto=validate` passes with no entities.
   - **Shared value types:** `TicketType`, `DayType`, `BookingStatus`, `Channel` and `SeatRef`.
   - **Redis infrastructure:**
     - Lettuce `StringRedisTemplate`;
@@ -240,7 +238,7 @@ Paths are abbreviated. `BE` means `backend/src/main/java/com/cinebot/`, `BT` mea
 - **Depends on:** G0.
 - **Owns:**
   - `BE/booking/domain/rule/**` (`OrphanSeatRule`, `SeatSelection`);
-  - `BE/pricing/domain/**` (`PriceCalculator`, `DayTypeResolver`, `SnackDiscount`);
+  - `BE/pricing/**` (`PriceCalculator`, `DayTypeResolver`, `SnackDiscount` in `domain`; the `pricing_policies` repository and `PricingService` implementation in `application`/`infra`);
   - `BE/membership/domain/**` (`MembershipPolicy`: points, qualifying sum, VIP decision).
 - **Inputs:** BR-02…BR-08, BR-16…BR-19.
 - **Tests:** all three shared fixture files, plus property-style tests (no rule violation for random valid selections).
@@ -265,7 +263,7 @@ Paths are abbreviated. `BE` means `backend/src/main/java/com/cinebot/`, `BT` mea
 
 #### B3 Schedule
 - **Depends on:** G0.
-- **Owns:** `BE/schedule/**`, `seed/templates.json`.
+- **Owns:** `BE/schedule/**`, `BE/booking/infra/occupancy/**` (implements `ShowtimeOccupancy`, see §8), `seed/templates.json`.
 - **Deliverables:**
   - Template and showtime entities.
   - `RollingShowtimeGenerator`, run by a job, at startup, and through a lazy guard (BR-25).
@@ -594,7 +592,7 @@ READ FIRST (mandatory, in this order):
 - docs/AGENT-EXECUTION-PLAN.md §4 (ownership) and your task card below
 
 SKILLS (technique only; the docs above win on any conflict):
-- .cursor/skills/<skill>/SKILL.md for each skill listed for <ID> in AGENT-EXECUTION-PLAN.md §8.1
+- .cursor/skills/<skill>/SKILL.md for each skill listed for <ID> in AGENT-EXECUTION-PLAN.md §9.1
 
 TASK CARD:
 <paste the full card from §5>
@@ -662,11 +660,36 @@ If a gate fails, the integrator either fixes small issues directly or launches a
 
 ---
 
-## 8. Agent skills
+## 8. Port catalogue (created by W0-2, frozen at G0)
+
+These Java interfaces are the only way modules call each other (`ER-02`). W0-2 creates each interface and its records in the listed package, with Javadoc and no logic. The **owner** task implements it. The direction follows `ARCHITECTURE.md` §4.3. Where a lower module needs data from a higher one, the lower module defines the interface and the higher module implements it (dependency inversion), so no cycle appears.
+
+| Port (package) | Methods (records live next to the interface) | Implemented by |
+| --- | --- | --- |
+| `catalog.application.CatalogQueryService` | `Optional<MovieSchedulingInfo> findMovie(long movieId)` → `(id, slug, durationMin, MovieStatus status, AgeRating ageRating)` | B2 |
+| `cinema.application.RoomLayoutService` | `RoomLayout getLayout(long roomId)` → `(roomId, roomName, cleanupMinutes, columns, List<LayoutRow>)`; `LayoutRow(label, SeatType, List<LayoutSeat>)`; `LayoutSeat(id, label, number, col, SeatType, boolean active)` | B2 |
+| `schedule.application.ScheduleQueryService` | `Optional<ShowtimeInfo> findShowtime(long showtimeId)` → `(id, movieId, roomId, Instant startsAt, Instant endsAt, ShowtimeStatus status)` | B3 |
+| `schedule.application.ShowtimeOccupancy` | `Map<Long,Integer> unavailableUnits(Collection<Long> showtimeIds)` (sold + held); `void simulateWalkIn(long showtimeId, long roomId, int percent, long seed)` (no orphans, `BR-26`) | **B3**, inside `booking/infra/occupancy/**` (booking owns `sold_seats`) |
+| `pricing.application.PricingService` | `PriceQuote quote(Instant startsAt)` → `(policyId, DayType, adult, student, couple, holdMinutes, pointsRatePct, vipThresholdPoints, vipSnackDiscountPct)` | B1 (whole `pricing` module) |
+| `booking.application.SeatInventory` | `void ensureSoldLoaded(showtimeId, Supplier<Set<Long>> soldFromDb, Instant expireAt)`; `InventorySnapshot snapshot(showtimeId, Set<String> rows, Set<Long> seatIds)`; `CommitResult commitHold(showtimeId, UUID bookingId, Map<Long,String> seatRows, Map<String,Long> expectedVersions, Duration ttl)`; `int releaseHold(showtimeId, bookingId, Map<Long,String> seatRows)`; `boolean extendHold(showtimeId, bookingId, Set<Long> seatIds, Duration ttl)`; `ClaimResult claimForSale(showtimeId, bookingId, Set<Long> seatIds, Duration ttl)`; `void markSold(showtimeId, bookingId, Map<Long,String> seatRows)`; `long heldCount(long showtimeId)`; `void invalidateSold(long showtimeId)`. Errors: `SeatInventoryUnavailableException`. | B5a |
+| `user.application.UserQueryService` | `Optional<UserContact> findContact(long userId)` → `(fullName, phone, email, Locale preferredLocale)` | B4 |
+| `ticket.application.TicketService` | `List<IssuedTicket> issue(UUID bookingId)`; `void voidTickets(UUID bookingId)` | B7 |
+| `membership.application.MembershipService` | `long earn(long userId, UUID bookingId, long ticketSubtotal, Instant at)`; `void reverse(UUID bookingId, Instant at)`; `int snackDiscountPct(Long userIdOrNull, Instant at)` | B8 |
+| `notification.application.NotificationService` | `void enqueue(EmailMessage msg)` → `(EmailType type, String to, Locale locale, Map<String,Object> model)`; `EmailType`: `BOOKING_CONFIRMED`, `VIP_GRANTED`, `VIP_RENEWED`, `VIP_LAPSED` | B7 |
+
+**Fallbacks.** So the application starts at every gate, W0-2 also creates one `@Fallback` bean (Spring Framework 6.2+) per port in `common/fallback/`:
+- Safe reads return neutral values: `heldCount` = 0, `snackDiscountPct` = 0, `unavailableUnits` = sold count only.
+- Writes throw: `SeatInventoryUnavailableException` for inventory, `UnsupportedOperationException("<port> not implemented yet (task <ID>)")` for the others.
+
+The implementing task **deletes its fallback file** (it owns that file).
+
+---
+
+## 9. Agent skills
 
 The project docs always win over a skill. Skills give technique, not rules. If a skill suggests something that contradicts `RULES.md`, `ARCHITECTURE.md` or `DESIGN.md`, follow the docs and ignore the skill on that point.
 
-### 8.1 Project skills (`.cursor/skills/`, tracked in git) per task
+### 9.1 Project skills (`.cursor/skills/`, tracked in git) per task
 
 Each prompt lists the skills for its task (see the `SKILLS` line in §6.1). Agents read only the listed `SKILL.md` files, plus their references if needed.
 
@@ -709,7 +732,7 @@ Each prompt lists the skills for its task (see the `SKILLS` line in §6.1). Agen
   - `ui-ux-pro-max`: only to review UX issues. It must not restyle anything; the visual identity is fixed in `DESIGN.md`.
   - The Next.js and server-side parts of `react-best-practices` and `tanstack-query-expert` don't apply, because this is a Vite SPA.
 
-### 8.2 Cursor and plugin skills
+### 9.2 Cursor and plugin skills
 
 | Skill | When | Why |
 | --- | --- | --- |
