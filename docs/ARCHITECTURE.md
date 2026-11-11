@@ -156,6 +156,7 @@ Conventions: `BIGSERIAL` ids (bookings use `UUID`), `created_at` / `updated_at t
 users            id, email UNIQUE, password_hash, full_name, phone,
                  role CHECK (CUSTOMER|STAFF|ADMIN),         -- STAFF reserved for check-in
                  preferred_locale, vip_since, vip_until, is_seed, created_at
+                 -- vip_since = current VIP period start (NULL after a lapse); vip_until kept as history (BR-18)
 refresh_tokens   id, user_id FK, token_hash UNIQUE, family_id uuid, expires_at,
                  revoked_at, replaced_by_id, created_ip, user_agent, created_at
 ```
@@ -326,7 +327,7 @@ Scripts are loaded once (`EVALSHA`, with a fallback to `EVAL` on `NOSCRIPT`). Ev
 
 ### 6.5 Payment start and expiry
 
-- **Payment start:** `extend_hold.lua` sets the TTL to `hold_expires_at + 2 min` grace (`BR-11`). `LOST` → `410 HOLD_EXPIRED` and no payment is created.
+- **Payment start:** `extend_hold.lua` sets the TTL to `hold_expires_at + 2 min` grace (`BR-11`). `LOST` → `410 HOLD_EXPIRED` and no payment is created. Redis unavailable → `503 SEAT_SERVICE_UNAVAILABLE` (the customer must not pay for seats that may not be protected).
 - **Expiry:** Redis TTL frees the seats with no job. `HoldExpiryJob` (every 30 s, PG only) moves `HOLDING` bookings past `hold_expires_at`, and `PENDING_PAYMENT` bookings past `hold_expires_at + 2 min`, to `EXPIRED`.
 - **Release:** `DELETE /api/bookings/{id}` → `release_hold.lua` + booking `RELEASED`.
 
@@ -538,17 +539,24 @@ GET  /api/me/membership
 | --- | --- | --- |
 | 400 | `VALIDATION_FAILED` | Bean Validation errors (with field details) |
 | 401 | `UNAUTHENTICATED`, `TOKEN_REUSED` | Missing or expired token; refresh token reuse |
+| 401 | `INVALID_CREDENTIALS` | Wrong email or password |
 | 403 | `FORBIDDEN`, `BOOKING_TOKEN_INVALID` | Wrong role; wrong or missing booking token |
 | 404 | `NOT_FOUND` | |
+| 409 | `EMAIL_TAKEN` | Registration with an existing email |
 | 409 | `SEAT_UNAVAILABLE` | Seats taken (response lists the seat ids) |
 | 409 | `SHOWTIME_OVERLAP` | Admin creates an overlapping showtime |
 | 409 | `INVALID_STATE` | Action not allowed in the current booking state |
+| 409 | `RESOURCE_IN_USE` | Deleting a movie with showtimes or a snack used by bookings; changing a room layout with future holds or sales |
 | 410 | `HOLD_EXPIRED` | Booking hold has expired |
 | 422 | `ORPHAN_SEAT` | `BR-08` violated (response lists the orphan seat ids) |
 | 422 | `TICKET_COUNT_MISMATCH`, `BOOKING_TOO_LARGE`, `SALES_CLOSED`, `NOT_BOOKABLE` | `BR-05`, `BR-07`, `BR-24`, `BR-23` |
+| 422 | `CUSTOMER_INFO_REQUIRED` | Guest starts a payment before entering contact details (`BR-20`) |
 | 422 | `SEED_PROTECTED` | Deleting seed data (`BR-26`) |
 | 429 | `RATE_LIMITED` | |
-| 503 | `SEAT_SERVICE_UNAVAILABLE` | Redis unavailable; holds cannot be created (§6.8) |
+| 500 | `INTERNAL_ERROR` | Unexpected error (details only in logs) |
+| 503 | `SEAT_SERVICE_UNAVAILABLE` | Redis unavailable; holds cannot be created or extended (§6.8) |
+
+The complete, authoritative list of endpoints, schemas and codes is `docs/api/openapi.yaml`.
 
 ### 9.3 Localisation
 

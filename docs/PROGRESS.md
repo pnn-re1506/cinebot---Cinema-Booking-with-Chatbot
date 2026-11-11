@@ -3,7 +3,7 @@
 | Item | Value |
 | --- | --- |
 | Last updated | 2026-11-11 |
-| Current phase | **Phase 0 – Foundations / Wave 0** (not started) |
+| Current phase | **Phase 0 – Foundations / Wave 0** (W0-1 done; W0-2 and W0-3 next) |
 | Overall v1 progress | Documentation done, all v1 decisions confirmed; implementation 0% |
 
 How to use this file (`ER-23`):
@@ -59,9 +59,10 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done · ⏸ deferred
 
 ### Phase 0 – Foundations ⬜
 
-Contract (W0-1)
-- [ ] `docs/api/openapi.yaml` covering every v1 endpoint, with examples and error codes (`ER-24`)
-- [ ] `shared/fixtures/orphan-rule-cases.json`, `pricing-cases.json`, `membership-cases.json` (`ER-20`)
+Contract (W0-1) ✅
+- [x] `docs/api/openapi.yaml` v1.0.0 covering every v1 endpoint (public, booking, payment, auth, account, admin), with examples and error codes (`ER-24`). Redocly lint clean; `openapi-typescript` generates types.
+- [x] `shared/fixtures/orphan-rule-cases.json` (30), `pricing-cases.json` (35), `membership-cases.json` (10 scenarios) (`ER-20`). Cross-checked with a reference implementation: 102/102 checks consistent.
+- [ ] Owner review of the contract, then tag `contract-v1.0.0`
 
 Backend (W0-2)
 - [ ] Spring Boot project (Java 21, Maven) with the module packages from `ARCHITECTURE.md` §4 and every dependency
@@ -210,6 +211,10 @@ Prerequisites already in v1: ticket `qr_token`/`status`/`checked_in_at`/`admits`
 | D-024 | 2026-11-11 | Contract-first API (`docs/api/openapi.yaml`), generated TS types, MSW mocks (`ER-24`) | Accepted |
 | D-025 | 2026-11-11 | Build executed by parallel Grok 4.7 high fast agents in waves with file ownership and integrator gates (`AGENT-EXECUTION-PLAN.md`) | Accepted |
 | D-026 | 2026-11-11 | Blocked seats are room-level (`seats.is_active=false`), not per showtime | Accepted with D-020 |
+| D-027 | 2026-11-11 | Membership details: reversal expires with its earn; renewal extends from the old expiry; earning while VIP does not extend; lapse clears `vip_since`; 01:00 evaluation gap accepted (`BR-17`, `BR-18`) | Chosen by integrator (W0-1) – owner may revise |
+| D-028 | 2026-11-11 | Snack quantity 1–10 per line, max 20 lines (`BR-19a`); password 8–72 chars with a letter and a digit; VN mobile phone pattern | Chosen by integrator (W0-1) – owner may revise |
+| D-029 | 2026-11-11 | New error codes `INVALID_CREDENTIALS`, `EMAIL_TAKEN`, `RESOURCE_IN_USE`, `CUSTOMER_INFO_REQUIRED`, `INTERNAL_ERROR`; payment start returns 503 when Redis is down | Accepted (W0-1) |
+| D-030 | 2026-11-11 | A `PENDING_PAYMENT` booking cannot start a second payment (409); it returns to `HOLDING` only via a failed IPN, reconciliation, or a Demo Pay failure | Accepted (W0-1) |
 
 ## 5. Open Questions
 
@@ -241,6 +246,7 @@ Prerequisites already in v1: ticket `qr_token`/`status`/`checked_in_at`/`admits`
 
 | Date | Change |
 | --- | --- |
+| 2026-11-11 | **W0-1 done.** Added `docs/api/openapi.yaml` (v1.0.0), `docs/api/README.md`, `redocly.yaml`, and the three shared fixture files. Clarified `BR-17`, `BR-18`, `BR-19a`, `BR-20`; added error codes to `ARCHITECTURE.md` §9.2 (D-027…D-030). |
 | 2026-11-11 | **Redis seat holds.** Owner confirmed all v1 decisions and chose Redis for holds. Updated `IMPLEMENTATION-PLAN.md` (rewritten), `ARCHITECTURE.md` (§6 rewritten, `sold_seats`, Redis everywhere, ADR 002/003/003a/010), `RULES.md` (BR-07, BR-09–BR-11, BR-19 rounding, ER-09, ER-10, ER-10a, ER-14, ER-16, ER-20, ER-21, ER-24, ER-25), `PRD.md` (confirmed values, FR-BKG-06a, NFRs), `DESIGN.md` (inventory-unavailable state, room-level blocked seats). Added `AGENT-EXECUTION-PLAN.md` and `.cursor/rules/*.mdc`. |
 | 2026-11-11 | Created `PRD.md`, `ARCHITECTURE.md`, `DESIGN.md`, `RULES.md`, `PROGRESS.md` from the planning discussion. Tightened the `BR-08` exception (contiguous selection) and corrected orphan test case 7. |
 | 2026-11-11 | Created `IMPLEMENTATION-PLAN.md` (detailed v1 plan). |

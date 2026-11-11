@@ -143,20 +143,28 @@ Allowed transitions: HOLDING→PENDING_PAYMENT, PENDING_PAYMENT→HOLDING (payme
 - Points are credited in the same transaction that confirms the payment.
 
 **BR-17 – Point expiry.** Each point-earning entry expires **12 months** after it was earned. "Qualifying points" = the sum of non-expired points earned in the last 12 months, minus reversals.
+- "12 months" = the same local date and time one year later in the cinema timezone (an entry earned on Feb 29 expires on Feb 28). The expiry instant itself is no longer counted.
+- A refund creates a reversal of the booking's earned points. The reversal **expires together with the original entry**, so the two always cancel out exactly.
+- Exact test table: `shared/fixtures/membership-cases.json`.
 
 **BR-18 – VIP tier**
 - One milestone: **Member → VIP** when qualifying points reach **50,000** [Config]. This equals 1,000,000 VND of tickets in 12 months.
 - VIP is granted immediately when the threshold is reached and lasts **12 months**.
 - On the VIP expiry date it renews for another 12 months only if qualifying points are still ≥ the threshold. Otherwise it lapses.
 - Refund reversals can drop qualifying points below the threshold. An already granted VIP period is **not** revoked by that.
+- Earning points while already VIP never extends the current period. A renewal extends from the previous expiry date, not from the evaluation date.
+- After a lapse, VIP is granted again (a new 12-month period) by the next confirmation that brings qualifying points back to the threshold.
+- The daily evaluation runs at 01:00, so a VIP whose period ends during the day has no snack discount until the next run renews it. This short gap is accepted in v1.
 
 **BR-19 – VIP benefit.** VIP members get **15% off every snack and combo** [Config], applied automatically. The discount is evaluated at hold time and snapshotted on the booking. It never applies to tickets.
 - **Rounding:** the discounted unit price is `price × (100 − pct) / 100`, **rounded down to the nearest 1,000 VND**. Example: 79,000 → 67,150 → **67,000**. Line total = discounted unit price × quantity.
 
 ### 1.5 Checkout and access
 
+**BR-19a – Snack quantities.** Each snack line has a quantity of 1–10, and a booking has at most 20 snack lines. Inactive snacks cannot be added.
+
 **BR-20 – Checkout steps**
-- Guest: **Customer info → Payment → Ticket**. Full name, phone (Vietnamese format) and email are required.
+- Guest: **Customer info → Payment → Ticket**. Full name, phone (Vietnamese mobile format `^(0|\+84)(3|5|7|8|9)[0-9]{8}$`) and email are required. A guest cannot start a payment without them (`CUSTOMER_INFO_REQUIRED`).
 - Member: **Payment → Ticket**. Contact details are prefilled from the profile and can be changed for this booking only.
 
 **BR-21 – Guest lookup.** A booking can be retrieved with its booking code plus the email **or** phone used for it. At most 5 attempts per minute per IP.

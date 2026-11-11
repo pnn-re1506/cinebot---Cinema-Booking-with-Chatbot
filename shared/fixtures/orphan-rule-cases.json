@@ -1,0 +1,43 @@
+{
+  "$comment": "Shared test table for BR-08 (docs/RULES.md). Used by the Java (OrphanSeatRule) and TypeScript (orphanRule.ts) tests. Integrator-owned.",
+  "version": 1,
+  "legend": {
+    "state": "One character per seat, seat number = index + 1. 'X' = unavailable (SOLD, BLOCKED or HELD by another booking), 'S' = selected by this customer, '_' = empty.",
+    "rows[].type": "SINGLE or COUPLE. The rule applies to SINGLE rows only; COUPLE rows are always valid.",
+    "expected.valid": "Whether the whole selection (all rows) passes BR-08.",
+    "expected.orphanSeats": "The orphan seats that make the selection invalid (to highlight in the UI), sorted by row then seat. Empty when valid. Orphans allowed by the exception or pre-existing orphans are never listed."
+  },
+  "cases": [
+    { "id": "BR08-01", "description": "Pair at the left end, no orphan", "rows": [{ "label": "A", "type": "SINGLE", "state": "SS________" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-02", "description": "Seat 1 orphaned at the left end", "rows": [{ "label": "A", "type": "SINGLE", "state": "_SS_______" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 1 }] } },
+    { "id": "BR08-03", "description": "Seat 10 orphaned at the right end", "rows": [{ "label": "A", "type": "SINGLE", "state": "________S_" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 10 }] } },
+    { "id": "BR08-04", "description": "Seat 4 orphaned in the middle", "rows": [{ "label": "A", "type": "SINGLE", "state": "__S_S_____" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 4 }] } },
+    { "id": "BR08-05", "description": "Run of 3, 2 contiguous selected (exception)", "rows": [{ "label": "A", "type": "SINGLE", "state": "XX_SSX____" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-06", "description": "Seat 2 was already an orphan before the selection", "rows": [{ "label": "A", "type": "SINGLE", "state": "X_XSS_____" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-07", "description": "Run of 2, 1 selected (exception)", "rows": [{ "label": "A", "type": "SINGLE", "state": "XS_X______" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-08", "description": "Run of 10, 8 selected, the 2 left seats stay together", "rows": [{ "label": "A", "type": "SINGLE", "state": "__SSSSSSSS" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-09", "description": "Seats 1 and 10 orphaned; 2 seats left in the run, so the exception does not apply", "rows": [{ "label": "A", "type": "SINGLE", "state": "_SSSSSSSS_" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 1 }, { "row": "A", "seat": 10 }] } },
+    { "id": "BR08-10", "description": "Seat 2 orphaned between two selected seats", "rows": [{ "label": "A", "type": "SINGLE", "state": "S_S_______" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 2 }] } },
+    { "id": "BR08-11", "description": "Run of 4 with 3 selected, but the selection is not contiguous", "rows": [{ "label": "A", "type": "SINGLE", "state": "XS_SSX____" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 3 }] } },
+
+    { "id": "BR08-12", "description": "Nothing selected in the row, pre-existing orphans are ignored", "rows": [{ "label": "A", "type": "SINGLE", "state": "_X_X______" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-13", "description": "Pre-existing orphan next to a sold seat, selection elsewhere in the row", "rows": [{ "label": "A", "type": "SINGLE", "state": "_XSS______" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-14", "description": "Gap of one between a sold seat and the selection", "rows": [{ "label": "A", "type": "SINGLE", "state": "X_S_______" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 2 }] } },
+    { "id": "BR08-15", "description": "Middle of a run of 3 selected leaves two orphans", "rows": [{ "label": "A", "type": "SINGLE", "state": "X_S_X_____" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 2 }, { "row": "A", "seat": 4 }] } },
+    { "id": "BR08-16", "description": "Run of 2, the right seat selected (exception)", "rows": [{ "label": "A", "type": "SINGLE", "state": "X_SX______" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-17", "description": "Nearly full row: last run of 2, 1 selected (exception)", "rows": [{ "label": "A", "type": "SINGLE", "state": "XXXXXXXX_S" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-18", "description": "Last run of 3, both ends selected around one seat (not contiguous)", "rows": [{ "label": "A", "type": "SINGLE", "state": "XXXXXXXS_S" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 9 }] } },
+    { "id": "BR08-19", "description": "Two separate pairs, gaps of 2 and 4 remain", "rows": [{ "label": "A", "type": "SINGLE", "state": "SS__SS____" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-20", "description": "Exception applies to one run but not to the other run in the same row", "rows": [{ "label": "A", "type": "SINGLE", "state": "X_SX_S____" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 5 }] } },
+    { "id": "BR08-21", "description": "Whole run of 3 selected", "rows": [{ "label": "A", "type": "SINGLE", "state": "XSSSX_____" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-22", "description": "Room 1 width (16): pair at the left end", "rows": [{ "label": "A", "type": "SINGLE", "state": "SS______________" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-23", "description": "Room 1 width (16): 8 seats leaving seat 1 alone", "rows": [{ "label": "A", "type": "SINGLE", "state": "_SSSSSSSS_______" }], "expected": { "valid": false, "orphanSeats": [{ "row": "A", "seat": 1 }] } },
+    { "id": "BR08-24", "description": "Multi-row selection: row A valid, row B invalid makes the whole selection invalid", "rows": [{ "label": "A", "type": "SINGLE", "state": "____SS____" }, { "label": "B", "type": "SINGLE", "state": "_SS_______" }], "expected": { "valid": false, "orphanSeats": [{ "row": "B", "seat": 1 }] } },
+    { "id": "BR08-25", "description": "Multi-row selection, both rows valid", "rows": [{ "label": "C", "type": "SINGLE", "state": "____SS____" }, { "label": "D", "type": "SINGLE", "state": "____SS____" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-26", "description": "Couple rows are never checked", "rows": [{ "label": "K", "type": "COUPLE", "state": "S_S__" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-27", "description": "Couple row ignored, single row checked", "rows": [{ "label": "J", "type": "SINGLE", "state": "S_________S_" }, { "label": "K", "type": "COUPLE", "state": "_S____" }], "expected": { "valid": false, "orphanSeats": [{ "row": "J", "seat": 12 }] } },
+    { "id": "BR08-28", "description": "Run of 2 at the left wall, seat 1 selected, seat 2 left next to a sold seat (exception)", "rows": [{ "label": "A", "type": "SINGLE", "state": "S_X_______" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-29", "description": "Run of 9 after a sold seat, 8 contiguous seats selected, seat 2 left alone (exception)", "rows": [{ "label": "A", "type": "SINGLE", "state": "X_SSSSSSSS" }], "expected": { "valid": true, "orphanSeats": [] } },
+    { "id": "BR08-30", "description": "Single selected seat in a run of 1 (fills a pre-existing orphan)", "rows": [{ "label": "A", "type": "SINGLE", "state": "XSX_______" }], "expected": { "valid": true, "orphanSeats": [] } }
+  ]
+}

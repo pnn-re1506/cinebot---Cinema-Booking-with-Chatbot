@@ -1,0 +1,16 @@
+extends:
+  - recommended
+
+apis:
+  cinebot:
+    root: docs/api/openapi.yaml
+    x-openapi-ts:
+      output: frontend/src/lib/api/schema.d.ts
+
+rules:
+  # Local servers are intentional (dev only); production URL is set at deploy time.
+  no-server-example.com: off
+  # Public read endpoints, the VNPay IPN (always 200 + RspCode) and the 302 return route have no 4XX by design.
+  operation-4xx-response: off
+  # The VNPay return route only redirects (302).
+  operation-2xx-response: off

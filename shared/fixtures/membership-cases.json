@@ -1,0 +1,120 @@
+{
+  "$comment": "Shared test table for BR-16, BR-17, BR-18 (docs/RULES.md). Used by Java (MembershipPolicy / MembershipService with a fixed Clock). Integrator-owned.",
+  "version": 1,
+  "timezone": "Asia/Ho_Chi_Minh",
+  "policy": { "pointsRatePct": 5, "vipThresholdPoints": 50000, "validityYears": 1 },
+  "semantics": {
+    "earn": "Only member bookings earn. points = floor(ticketSubtotal x pointsRatePct / 100). Ledger EARN entry: earnedAt = confirmation time, expiresAt = earnedAt + 1 year (calendar, cinema timezone; Feb 29 -> Feb 28).",
+    "reversal": "On admin refund of a booking that earned points: REVERSAL entry with points = -(earned points), earnedAt = refund time, expiresAt = expiresAt of the original EARN entry.",
+    "qualifyingPoints(t)": "Sum of points of all ledger entries with earnedAt <= t < expiresAt.",
+    "isVip(t)": "vipUntil != null and t < vipUntil.",
+    "grantOnConfirmation": "After crediting points at confirmation time t: if not isVip(t) and qualifyingPoints(t) >= threshold -> vipSince = t, vipUntil = t + 1 year, event VIP_GRANTED. Earning while already VIP never changes vipUntil.",
+    "evaluationJob": "VipEvaluationJob at time t considers users with vipSince != null and vipUntil <= t. If qualifyingPoints(t) >= threshold -> vipUntil = vipUntil + 1 year (vipSince unchanged), event VIP_RENEWED. Otherwise -> vipSince = null (vipUntil kept as history), event VIP_LAPSED. Users with vipSince = null are skipped.",
+    "refundAndVip": "A reversal never revokes an already granted VIP period (BR-18)."
+  },
+  "expectFields": {
+    "pointsEarned": "CONFIRM_BOOKING only; null for guest bookings",
+    "ledgerEntry": "Entry created by this step: { type, points, expiresAt }",
+    "event": "VIP_GRANTED | VIP_RENEWED | VIP_LAPSED | null",
+    "vipSince / vipUntil": "null when never set; ISO-8601 with +07:00"
+  },
+  "cases": [
+    {
+      "id": "MB-01",
+      "description": "Earn 5% of tickets; the entry expires exactly 1 year later (exclusive)",
+      "steps": [
+        { "at": "2026-01-10T10:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 130000, "expect": { "pointsEarned": 6500, "ledgerEntry": { "type": "EARN", "points": 6500, "expiresAt": "2027-01-10T10:00:00+07:00" }, "qualifyingPoints": 6500, "isVip": false, "vipSince": null, "vipUntil": null, "event": null } },
+        { "at": "2027-01-10T09:59:59+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 6500, "isVip": false } },
+        { "at": "2027-01-10T10:00:00+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 0, "isVip": false } }
+      ]
+    },
+    {
+      "id": "MB-02",
+      "description": "Guest bookings never earn points, not even later",
+      "steps": [
+        { "at": "2026-03-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "g1", "memberBooking": false, "ticketSubtotal": 200000, "expect": { "pointsEarned": null, "ledgerEntry": null, "qualifyingPoints": 0, "isVip": false, "event": null } },
+        { "at": "2026-03-02T20:00:00+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 0, "isVip": false } }
+      ]
+    },
+    {
+      "id": "MB-03",
+      "description": "Point amounts for several subtotals accumulate",
+      "steps": [
+        { "at": "2026-04-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 45000, "expect": { "pointsEarned": 2250, "qualifyingPoints": 2250, "isVip": false, "event": null } },
+        { "at": "2026-04-02T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b2", "memberBooking": true, "ticketSubtotal": 100000, "expect": { "pointsEarned": 5000, "qualifyingPoints": 7250, "isVip": false, "event": null } },
+        { "at": "2026-04-03T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b3", "memberBooking": true, "ticketSubtotal": 670000, "expect": { "pointsEarned": 33500, "qualifyingPoints": 40750, "isVip": false, "event": null } }
+      ]
+    },
+    {
+      "id": "MB-04",
+      "description": "VIP granted when the threshold is reached; later earning does not extend it",
+      "steps": [
+        { "at": "2026-02-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 400000, "expect": { "pointsEarned": 20000, "qualifyingPoints": 20000, "isVip": false, "event": null } },
+        { "at": "2026-05-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b2", "memberBooking": true, "ticketSubtotal": 400000, "expect": { "pointsEarned": 20000, "qualifyingPoints": 40000, "isVip": false, "event": null } },
+        { "at": "2026-08-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b3", "memberBooking": true, "ticketSubtotal": 180000, "expect": { "pointsEarned": 9000, "qualifyingPoints": 49000, "isVip": false, "event": null } },
+        { "at": "2026-08-02T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b4", "memberBooking": true, "ticketSubtotal": 55000, "expect": { "pointsEarned": 2750, "qualifyingPoints": 51750, "isVip": true, "vipSince": "2026-08-02T20:00:00+07:00", "vipUntil": "2027-08-02T20:00:00+07:00", "event": "VIP_GRANTED" } },
+        { "at": "2026-09-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b5", "memberBooking": true, "ticketSubtotal": 130000, "expect": { "pointsEarned": 6500, "qualifyingPoints": 58250, "isVip": true, "vipSince": "2026-08-02T20:00:00+07:00", "vipUntil": "2027-08-02T20:00:00+07:00", "event": null } }
+      ]
+    },
+    {
+      "id": "MB-05",
+      "description": "VIP renews for another year when qualifying points are still above the threshold at expiry",
+      "steps": [
+        { "at": "2026-03-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 1000000, "expect": { "pointsEarned": 50000, "qualifyingPoints": 50000, "isVip": true, "vipSince": "2026-03-01T20:00:00+07:00", "vipUntil": "2027-03-01T20:00:00+07:00", "event": "VIP_GRANTED" } },
+        { "at": "2026-12-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b2", "memberBooking": true, "ticketSubtotal": 600000, "expect": { "pointsEarned": 30000, "qualifyingPoints": 80000, "isVip": true, "vipUntil": "2027-03-01T20:00:00+07:00", "event": null } },
+        { "at": "2027-02-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b3", "memberBooking": true, "ticketSubtotal": 400000, "expect": { "pointsEarned": 20000, "qualifyingPoints": 100000, "isVip": true, "vipUntil": "2027-03-01T20:00:00+07:00", "event": null } },
+        { "at": "2027-03-01T23:00:00+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 50000, "isVip": false, "vipSince": "2026-03-01T20:00:00+07:00", "vipUntil": "2027-03-01T20:00:00+07:00" } },
+        { "at": "2027-03-02T01:00:00+07:00", "action": "EVALUATE_VIP", "expect": { "qualifyingPoints": 50000, "isVip": true, "vipSince": "2026-03-01T20:00:00+07:00", "vipUntil": "2028-03-01T20:00:00+07:00", "event": "VIP_RENEWED" } }
+      ]
+    },
+    {
+      "id": "MB-06",
+      "description": "VIP lapses below the threshold, is not re-evaluated, and can be granted again later",
+      "steps": [
+        { "at": "2026-03-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 1000000, "expect": { "pointsEarned": 50000, "qualifyingPoints": 50000, "isVip": true, "vipSince": "2026-03-01T20:00:00+07:00", "vipUntil": "2027-03-01T20:00:00+07:00", "event": "VIP_GRANTED" } },
+        { "at": "2026-06-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b2", "memberBooking": true, "ticketSubtotal": 200000, "expect": { "pointsEarned": 10000, "qualifyingPoints": 60000, "isVip": true, "event": null } },
+        { "at": "2027-03-02T01:00:00+07:00", "action": "EVALUATE_VIP", "expect": { "qualifyingPoints": 10000, "isVip": false, "vipSince": null, "vipUntil": "2027-03-01T20:00:00+07:00", "event": "VIP_LAPSED" } },
+        { "at": "2027-03-03T01:00:00+07:00", "action": "EVALUATE_VIP", "expect": { "qualifyingPoints": 10000, "isVip": false, "vipSince": null, "vipUntil": "2027-03-01T20:00:00+07:00", "event": null } },
+        { "at": "2027-04-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b3", "memberBooking": true, "ticketSubtotal": 800000, "expect": { "pointsEarned": 40000, "qualifyingPoints": 50000, "isVip": true, "vipSince": "2027-04-01T20:00:00+07:00", "vipUntil": "2028-04-01T20:00:00+07:00", "event": "VIP_GRANTED" } }
+      ]
+    },
+    {
+      "id": "MB-07",
+      "description": "A refund reversal drops qualifying points but does not revoke the granted VIP period",
+      "steps": [
+        { "at": "2026-03-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 1000000, "expect": { "pointsEarned": 50000, "qualifyingPoints": 50000, "isVip": true, "vipSince": "2026-03-01T20:00:00+07:00", "vipUntil": "2027-03-01T20:00:00+07:00", "event": "VIP_GRANTED" } },
+        { "at": "2026-04-01T10:00:00+07:00", "action": "REFUND_BOOKING", "bookingRef": "b1", "expect": { "ledgerEntry": { "type": "REVERSAL", "points": -50000, "expiresAt": "2027-03-01T20:00:00+07:00" }, "qualifyingPoints": 0, "isVip": true, "vipUntil": "2027-03-01T20:00:00+07:00", "event": null } },
+        { "at": "2027-03-02T01:00:00+07:00", "action": "EVALUATE_VIP", "expect": { "qualifyingPoints": 0, "isVip": false, "vipSince": null, "vipUntil": "2027-03-01T20:00:00+07:00", "event": "VIP_LAPSED" } }
+      ]
+    },
+    {
+      "id": "MB-08",
+      "description": "A reversal cancels its earn exactly and disappears with it",
+      "steps": [
+        { "at": "2026-01-15T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 200000, "expect": { "pointsEarned": 10000, "qualifyingPoints": 10000, "isVip": false, "event": null } },
+        { "at": "2026-02-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b2", "memberBooking": true, "ticketSubtotal": 300000, "expect": { "pointsEarned": 15000, "qualifyingPoints": 25000, "isVip": false, "event": null } },
+        { "at": "2026-03-01T10:00:00+07:00", "action": "REFUND_BOOKING", "bookingRef": "b1", "expect": { "ledgerEntry": { "type": "REVERSAL", "points": -10000, "expiresAt": "2027-01-15T20:00:00+07:00" }, "qualifyingPoints": 15000, "isVip": false, "event": null } },
+        { "at": "2027-01-15T20:00:00+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 15000, "isVip": false } },
+        { "at": "2027-02-01T20:00:00+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 0, "isVip": false } }
+      ]
+    },
+    {
+      "id": "MB-09",
+      "description": "Points from 11 months ago still count towards VIP; their expiry later does not revoke VIP",
+      "steps": [
+        { "at": "2025-11-01T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 600000, "expect": { "pointsEarned": 30000, "qualifyingPoints": 30000, "isVip": false, "event": null } },
+        { "at": "2026-10-15T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b2", "memberBooking": true, "ticketSubtotal": 400000, "expect": { "pointsEarned": 20000, "qualifyingPoints": 50000, "isVip": true, "vipSince": "2026-10-15T20:00:00+07:00", "vipUntil": "2027-10-15T20:00:00+07:00", "event": "VIP_GRANTED" } },
+        { "at": "2026-11-01T20:00:00+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 20000, "isVip": true, "vipUntil": "2027-10-15T20:00:00+07:00" } }
+      ]
+    },
+    {
+      "id": "MB-10",
+      "description": "Points earned on Feb 29 expire on Feb 28 of the next year",
+      "steps": [
+        { "at": "2028-02-29T20:00:00+07:00", "action": "CONFIRM_BOOKING", "bookingRef": "b1", "memberBooking": true, "ticketSubtotal": 55000, "expect": { "pointsEarned": 2750, "ledgerEntry": { "type": "EARN", "points": 2750, "expiresAt": "2029-02-28T20:00:00+07:00" }, "qualifyingPoints": 2750, "isVip": false, "event": null } },
+        { "at": "2029-02-28T19:59:59+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 2750 } },
+        { "at": "2029-02-28T20:00:00+07:00", "action": "CHECK", "expect": { "qualifyingPoints": 0 } }
+      ]
+    }
+  ]
+}

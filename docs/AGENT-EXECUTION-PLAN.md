@@ -170,7 +170,7 @@ Paths are abbreviated. `BE` means `backend/src/main/java/com/cinebot/`, `BT` mea
     - `ProblemDetail` responses with the exact `code` values from §9.2;
     - the headers `X-Booking-Token`, `X-Client-Id` and `Accept-Language`;
     - security schemes;
-    - the seat-map response, including `inventoryAvailable`, `HELD_BY_YOU`, `rowVersion` and seat coordinates.
+    - the seat-map response, including `inventoryAvailable`, `HELD_BY_YOU` and seat coordinates. Row versions stay internal to Redis.
   - **`orphan-rule-cases.json`:** the 11 cases from `BR-08` plus edge cases (existing gaps, row ends, couple rows ignored, multi-row selections).
   - **`pricing-cases.json`:** every day type, a 00:30 screening, student and couple tickets, snack VIP rounding (79,000 → 67,000), and totals.
   - **`membership-cases.json`:** earning, the 12-month expiry, the VIP threshold crossed and expired, with fixed clocks.

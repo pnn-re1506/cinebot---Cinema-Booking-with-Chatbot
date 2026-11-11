@@ -1,0 +1,70 @@
+{
+  "$comment": "Shared test table for BR-02, BR-03, BR-06, BR-16 (points amount) and BR-19 (docs/RULES.md). Used by Java (PriceCalculator, DayTypeResolver, SnackDiscount, ticket assignment) and TypeScript (display totals). Integrator-owned.",
+  "version": 1,
+  "timezone": "Asia/Ho_Chi_Minh",
+  "defaultPolicy": {
+    "discountDayOfWeek": "TUE",
+    "adultDiscountDay": 45000,
+    "adultWeekday": 55000,
+    "adultWeekend": 65000,
+    "studentPrice": 45000,
+    "coupleSurcharge": 10000,
+    "pointsRatePct": 5,
+    "vipThresholdPoints": 50000,
+    "vipSnackDiscountPct": 15,
+    "holdMinutes": 10
+  },
+  "formulas": {
+    "dayType": "From the LOCAL start date in the cinema timezone: discountDayOfWeek -> DISCOUNT_DAY; SAT, SUN -> WEEKEND; other days -> WEEKDAY.",
+    "couplePrice": "2 x adult price of the day type + coupleSurcharge",
+    "discountedSnackUnitPrice": "floor(unitPrice x (100 - pct) / 100 / 1000) x 1000  (rounded DOWN to 1,000 VND; integer arithmetic: (unitPrice * (100 - pct) / 100000) * 1000)",
+    "snackLineTotal": "discountedUnitPrice x quantity",
+    "snackSubtotal": "sum(unitPrice x quantity)  (before discount)",
+    "snackDiscount": "sum((unitPrice - discountedUnitPrice) x quantity)",
+    "total": "ticketSubtotal + snackSubtotal - snackDiscount",
+    "pointsIfMember": "floor(ticketSubtotal x pointsRatePct / 100); snacks never earn points"
+  },
+  "dayTypeCases": [
+    { "id": "DT-01", "description": "Tuesday is the discount day", "startsAt": "2026-11-10T19:00:00+07:00", "expected": { "dayType": "DISCOUNT_DAY", "prices": { "adult": 45000, "student": 45000, "couple": 100000 } } },
+    { "id": "DT-02", "description": "Monday is a weekday", "startsAt": "2026-11-09T19:00:00+07:00", "expected": { "dayType": "WEEKDAY", "prices": { "adult": 55000, "student": 45000, "couple": 120000 } } },
+    { "id": "DT-03", "description": "Wednesday morning", "startsAt": "2026-11-11T10:00:00+07:00", "expected": { "dayType": "WEEKDAY", "prices": { "adult": 55000, "student": 45000, "couple": 120000 } } },
+    { "id": "DT-04", "description": "Thursday", "startsAt": "2026-11-12T14:15:00+07:00", "expected": { "dayType": "WEEKDAY", "prices": { "adult": 55000, "student": 45000, "couple": 120000 } } },
+    { "id": "DT-05", "description": "Friday late show is still Friday", "startsAt": "2026-11-13T23:45:00+07:00", "expected": { "dayType": "WEEKDAY", "prices": { "adult": 55000, "student": 45000, "couple": 120000 } } },
+    { "id": "DT-06", "description": "Saturday", "startsAt": "2026-11-14T09:00:00+07:00", "expected": { "dayType": "WEEKEND", "prices": { "adult": 65000, "student": 45000, "couple": 140000 } } },
+    { "id": "DT-07", "description": "00:30 on Sunday is a Sunday showtime (BR-02)", "startsAt": "2026-11-15T00:30:00+07:00", "expected": { "dayType": "WEEKEND", "prices": { "adult": 65000, "student": 45000, "couple": 140000 } } },
+    { "id": "DT-08", "description": "00:30 on Monday (after Sunday night) is a Monday showtime", "startsAt": "2026-11-16T00:30:00+07:00", "expected": { "dayType": "WEEKDAY", "prices": { "adult": 55000, "student": 45000, "couple": 120000 } } },
+    { "id": "DT-09", "description": "UTC instant on Monday = Tuesday 00:30 local", "startsAt": "2026-11-16T17:30:00Z", "expected": { "dayType": "DISCOUNT_DAY", "prices": { "adult": 45000, "student": 45000, "couple": 100000 } } },
+    { "id": "DT-10", "description": "UTC instant on Friday = Saturday 00:30 local", "startsAt": "2026-11-13T17:30:00Z", "expected": { "dayType": "WEEKEND", "prices": { "adult": 65000, "student": 45000, "couple": 140000 } } },
+    { "id": "DT-11", "description": "Policy with Monday as discount day: Monday", "policyOverride": { "discountDayOfWeek": "MON" }, "startsAt": "2026-11-09T19:00:00+07:00", "expected": { "dayType": "DISCOUNT_DAY", "prices": { "adult": 45000, "student": 45000, "couple": 100000 } } },
+    { "id": "DT-12", "description": "Policy with Monday as discount day: Tuesday becomes a weekday", "policyOverride": { "discountDayOfWeek": "MON" }, "startsAt": "2026-11-10T19:00:00+07:00", "expected": { "dayType": "WEEKDAY", "prices": { "adult": 55000, "student": 45000, "couple": 120000 } } },
+    { "id": "DT-13", "description": "Custom prices and surcharge on a Saturday", "policyOverride": { "adultDiscountDay": 50000, "adultWeekday": 60000, "adultWeekend": 70000, "studentPrice": 50000, "coupleSurcharge": 20000 }, "startsAt": "2026-11-14T19:00:00+07:00", "expected": { "dayType": "WEEKEND", "prices": { "adult": 70000, "student": 50000, "couple": 160000 } } }
+  ],
+  "bookingCases": [
+    { "id": "BK-01", "description": "Tuesday, 2 adults", "startsAt": "2026-11-10T19:00:00+07:00", "isVip": false, "quantities": { "adult": 2, "student": 0, "couple": 0 }, "snacks": [], "expected": { "dayType": "DISCOUNT_DAY", "ticketSubtotal": 90000, "snackLines": [], "snackSubtotal": 0, "snackDiscount": 0, "total": 90000, "pointsIfMember": 4500 } },
+    { "id": "BK-02", "description": "Wednesday, 1 adult + 1 student", "startsAt": "2026-11-11T20:00:00+07:00", "isVip": false, "quantities": { "adult": 1, "student": 1, "couple": 0 }, "snacks": [], "expected": { "dayType": "WEEKDAY", "ticketSubtotal": 100000, "snackLines": [], "snackSubtotal": 0, "snackDiscount": 0, "total": 100000, "pointsIfMember": 5000 } },
+    { "id": "BK-03", "description": "Saturday, 2 adults (BR-16 example: 6,500 points)", "startsAt": "2026-11-14T21:30:00+07:00", "isVip": false, "quantities": { "adult": 2, "student": 0, "couple": 0 }, "snacks": [], "expected": { "dayType": "WEEKEND", "ticketSubtotal": 130000, "snackLines": [], "snackSubtotal": 0, "snackDiscount": 0, "total": 130000, "pointsIfMember": 6500 } },
+    { "id": "BK-04", "description": "Wednesday, 2 adults + 1 couple seat", "startsAt": "2026-11-11T20:00:00+07:00", "isVip": false, "quantities": { "adult": 2, "student": 0, "couple": 1 }, "snacks": [], "expected": { "dayType": "WEEKDAY", "ticketSubtotal": 230000, "snackLines": [], "snackSubtotal": 0, "snackDiscount": 0, "total": 230000, "pointsIfMember": 11500 } },
+    { "id": "BK-05", "description": "Saturday, maximum 8 units: 6 adults + 2 couple seats", "startsAt": "2026-11-14T19:00:00+07:00", "isVip": false, "quantities": { "adult": 6, "student": 0, "couple": 2 }, "snacks": [], "expected": { "dayType": "WEEKEND", "ticketSubtotal": 670000, "snackLines": [], "snackSubtotal": 0, "snackDiscount": 0, "total": 670000, "pointsIfMember": 33500 } },
+    { "id": "BK-06", "description": "Tuesday, 1 student + 1 couple seat (couple formula even for students)", "startsAt": "2026-11-10T19:00:00+07:00", "isVip": false, "quantities": { "adult": 0, "student": 1, "couple": 1 }, "snacks": [], "expected": { "dayType": "DISCOUNT_DAY", "ticketSubtotal": 145000, "snackLines": [], "snackSubtotal": 0, "snackDiscount": 0, "total": 145000, "pointsIfMember": 7250 } },
+    { "id": "BK-07", "description": "Saturday, 2 adults + snacks, not VIP", "startsAt": "2026-11-14T19:00:00+07:00", "isVip": false, "quantities": { "adult": 2, "student": 0, "couple": 0 }, "snacks": [{ "code": "POPCORN_L", "unitPrice": 79000, "quantity": 1 }, { "code": "DRINK_L", "unitPrice": 45000, "quantity": 2 }], "expected": { "dayType": "WEEKEND", "ticketSubtotal": 130000, "snackLines": [{ "code": "POPCORN_L", "discountPct": 0, "discountedUnitPrice": 79000, "lineTotal": 79000 }, { "code": "DRINK_L", "discountPct": 0, "discountedUnitPrice": 45000, "lineTotal": 90000 }], "snackSubtotal": 169000, "snackDiscount": 0, "total": 299000, "pointsIfMember": 6500 } },
+    { "id": "BK-08", "description": "Same as BK-07 for a VIP: 15% off snacks, rounded down to 1,000", "startsAt": "2026-11-14T19:00:00+07:00", "isVip": true, "quantities": { "adult": 2, "student": 0, "couple": 0 }, "snacks": [{ "code": "POPCORN_L", "unitPrice": 79000, "quantity": 1 }, { "code": "DRINK_L", "unitPrice": 45000, "quantity": 2 }], "expected": { "dayType": "WEEKEND", "ticketSubtotal": 130000, "snackLines": [{ "code": "POPCORN_L", "discountPct": 15, "discountedUnitPrice": 67000, "lineTotal": 67000 }, { "code": "DRINK_L", "discountPct": 15, "discountedUnitPrice": 38000, "lineTotal": 76000 }], "snackSubtotal": 169000, "snackDiscount": 26000, "total": 273000, "pointsIfMember": 6500 } },
+    { "id": "BK-09", "description": "VIP, Saturday couple seat + combo", "startsAt": "2026-11-14T19:00:00+07:00", "isVip": true, "quantities": { "adult": 0, "student": 0, "couple": 1 }, "snacks": [{ "code": "COMBO_COUPLE", "unitPrice": 129000, "quantity": 1 }], "expected": { "dayType": "WEEKEND", "ticketSubtotal": 140000, "snackLines": [{ "code": "COMBO_COUPLE", "discountPct": 15, "discountedUnitPrice": 109000, "lineTotal": 109000 }], "snackSubtotal": 129000, "snackDiscount": 20000, "total": 249000, "pointsIfMember": 7000 } },
+    { "id": "BK-10", "description": "VIP without snacks: tickets are never discounted", "startsAt": "2026-11-11T20:00:00+07:00", "isVip": true, "quantities": { "adult": 1, "student": 0, "couple": 0 }, "snacks": [], "expected": { "dayType": "WEEKDAY", "ticketSubtotal": 55000, "snackLines": [], "snackSubtotal": 0, "snackDiscount": 0, "total": 55000, "pointsIfMember": 2750 } }
+  ],
+  "snackDiscountCases": [
+    { "id": "SD-01", "unitPrice": 79000, "pct": 15, "expected": 67000 },
+    { "id": "SD-02", "unitPrice": 45000, "pct": 15, "expected": 38000 },
+    { "id": "SD-03", "unitPrice": 100000, "pct": 15, "expected": 85000 },
+    { "id": "SD-04", "unitPrice": 25000, "pct": 15, "expected": 21000 },
+    { "id": "SD-05", "unitPrice": 129000, "pct": 15, "expected": 109000 },
+    { "id": "SD-06", "unitPrice": 79000, "pct": 0, "expected": 79000 },
+    { "id": "SD-07", "unitPrice": 79000, "pct": 20, "expected": 63000 },
+    { "id": "SD-08", "unitPrice": 60000, "pct": 15, "expected": 51000 }
+  ],
+  "ticketAssignmentCases": [
+    { "id": "TA-01", "description": "Sorted by row then number; first N singles are students (BR-06)", "seats": [{ "label": "B5", "seatType": "SINGLE" }, { "label": "A7", "seatType": "SINGLE" }, { "label": "A6", "seatType": "SINGLE" }], "quantities": { "adult": 2, "student": 1, "couple": 0 }, "expected": [{ "label": "A6", "ticketType": "STUDENT" }, { "label": "A7", "ticketType": "ADULT" }, { "label": "B5", "ticketType": "ADULT" }] },
+    { "id": "TA-02", "description": "Seat numbers sort numerically (A9 before A10)", "seats": [{ "label": "A10", "seatType": "SINGLE" }, { "label": "A9", "seatType": "SINGLE" }], "quantities": { "adult": 1, "student": 1, "couple": 0 }, "expected": [{ "label": "A9", "ticketType": "STUDENT" }, { "label": "A10", "ticketType": "ADULT" }] },
+    { "id": "TA-03", "description": "Couple seats are always COUPLE", "seats": [{ "label": "K2", "seatType": "COUPLE" }, { "label": "C4", "seatType": "SINGLE" }, { "label": "C3", "seatType": "SINGLE" }], "quantities": { "adult": 0, "student": 2, "couple": 1 }, "expected": [{ "label": "C3", "ticketType": "STUDENT" }, { "label": "C4", "ticketType": "STUDENT" }, { "label": "K2", "ticketType": "COUPLE" }] },
+    { "id": "TA-04", "description": "No students: all singles are adults", "seats": [{ "label": "E2", "seatType": "SINGLE" }, { "label": "E1", "seatType": "SINGLE" }], "quantities": { "adult": 2, "student": 0, "couple": 0 }, "expected": [{ "label": "E1", "ticketType": "ADULT" }, { "label": "E2", "ticketType": "ADULT" }] }
+  ]
+}
