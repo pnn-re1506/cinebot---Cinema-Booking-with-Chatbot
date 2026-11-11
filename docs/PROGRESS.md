@@ -62,7 +62,7 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done · ⏸ deferred
 Contract (W0-1) ✅
 - [x] `docs/api/openapi.yaml` v1.0.0 covering every v1 endpoint (public, booking, payment, auth, account, admin), with examples and error codes (`ER-24`). Redocly lint clean; `openapi-typescript` generates types.
 - [x] `shared/fixtures/orphan-rule-cases.json` (30), `pricing-cases.json` (35), `membership-cases.json` (10 scenarios) (`ER-20`). Cross-checked with a reference implementation: 102/102 checks consistent.
-- [ ] Owner review of the contract, then tag `contract-v1.0.0`
+- [x] Owner approved the contract and D-027…D-030; tagged `contract-v1.0.0`
 
 Backend (W0-2)
 - [ ] Spring Boot project (Java 21, Maven) with the module packages from `ARCHITECTURE.md` §4 and every dependency
@@ -211,8 +211,8 @@ Prerequisites already in v1: ticket `qr_token`/`status`/`checked_in_at`/`admits`
 | D-024 | 2026-11-11 | Contract-first API (`docs/api/openapi.yaml`), generated TS types, MSW mocks (`ER-24`) | Accepted |
 | D-025 | 2026-11-11 | Build executed by parallel Grok 4.7 high fast agents in waves with file ownership and integrator gates (`AGENT-EXECUTION-PLAN.md`) | Accepted |
 | D-026 | 2026-11-11 | Blocked seats are room-level (`seats.is_active=false`), not per showtime | Accepted with D-020 |
-| D-027 | 2026-11-11 | Membership details: reversal expires with its earn; renewal extends from the old expiry; earning while VIP does not extend; lapse clears `vip_since`; 01:00 evaluation gap accepted (`BR-17`, `BR-18`) | Chosen by integrator (W0-1) – owner may revise |
-| D-028 | 2026-11-11 | Snack quantity 1–10 per line, max 20 lines (`BR-19a`); password 8–72 chars with a letter and a digit; VN mobile phone pattern | Chosen by integrator (W0-1) – owner may revise |
+| D-027 | 2026-11-11 | Membership details: reversal expires with its earn; renewal extends from the old expiry; earning while VIP does not extend; lapse clears `vip_since`; 01:00 evaluation gap accepted (`BR-17`, `BR-18`) | Confirmed by owner |
+| D-028 | 2026-11-11 | Snack quantity 1–10 per line, max 20 lines (`BR-19a`); password 8–72 chars with a letter and a digit; VN mobile phone pattern | Confirmed by owner |
 | D-029 | 2026-11-11 | New error codes `INVALID_CREDENTIALS`, `EMAIL_TAKEN`, `RESOURCE_IN_USE`, `CUSTOMER_INFO_REQUIRED`, `INTERNAL_ERROR`; payment start returns 503 when Redis is down | Accepted (W0-1) |
 | D-030 | 2026-11-11 | A `PENDING_PAYMENT` booking cannot start a second payment (409); it returns to `HOLDING` only via a failed IPN, reconciliation, or a Demo Pay failure | Accepted (W0-1) |
 
