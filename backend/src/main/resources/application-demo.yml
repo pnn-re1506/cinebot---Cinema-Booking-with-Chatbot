@@ -1,0 +1,3 @@
+cinebot:
+  demo-mode: true
+  payment-providers-enabled: ${PAYMENT_PROVIDERS_ENABLED:VNPAY,MOCK}

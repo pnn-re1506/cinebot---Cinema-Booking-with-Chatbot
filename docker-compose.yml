@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cinebot
+      POSTGRES_USER: cinebot
+      POSTGRES_PASSWORD: cinebot
+    ports:
+      - "5432:5432"
+    volumes:
+      - cinebot-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - cinebot-redis:/data
+
+volumes:
+  cinebot-postgres:
+  cinebot-redis:
