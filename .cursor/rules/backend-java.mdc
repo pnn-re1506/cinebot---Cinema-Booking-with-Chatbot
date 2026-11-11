@@ -1,0 +1,30 @@
+---
+description: Spring Boot backend conventions - package-by-feature layers, transactions, DTOs, errors, time
+globs: backend/**/*.java
+alwaysApply: false
+---
+
+# Backend (Java 21, Spring Boot)
+
+## Structure (`ARCHITECTURE.md` §4)
+- Package `com.cinebot.<module>.{api,application,domain,infra}`.
+- `api`: controllers + DTOs only. `application`: use cases, `@Transactional`. `domain`: plain Java, no Spring imports. `infra`: repositories, Redis, external clients.
+- Cross-module calls only through the other module's application interface (port), never its repositories (`ER-02`).
+
+## Conventions
+- Constructor injection, `final` fields; records for DTOs, commands and results.
+- Request DTOs validated with Bean Validation; never return JPA entities (`ER-12`).
+- Throw `ApiException(ErrorCode.X, details)`; the global handler builds `ProblemDetail`. Never return error text.
+- Use the injected `Clock`:
+
+```java
+// ❌ var now = Instant.now();
+// ✅
+var now = Instant.now(clock);
+```
+
+- Money: `long` VND. Enums persisted as `text` with `CHECK` constraints (`ER-08`).
+- Side effects that must happen after commit (Redis `mark_sold`, emails) use `TransactionSynchronization` / `@TransactionalEventListener(AFTER_COMMIT)`.
+- Scheduled jobs use ShedLock and are idempotent.
+- Rate limits via the `RateLimiter` interface (Bucket4j + Redis), never ad-hoc maps.
+- Logs: structured, no phone/email/token values.

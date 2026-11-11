@@ -7,7 +7,7 @@ This file is the **single source of truth** for:
 
 Other documents reference these IDs instead of repeating the rules. To change a rule: update this file first, add an entry to the decision log in `PROGRESS.md`, then change the code and tests.
 
-Legend: **[Assumed]** means the value was chosen on the owner's behalf and is pending confirmation. **[Config]** means admin can change the value without a deployment.
+Legend: **[Config]** means admin can change the value without a deployment. All values in this file were confirmed by the owner on 2026-11-11.
 
 ---
 
@@ -33,9 +33,9 @@ The day type comes from the showtime's **local start date** in `Asia/Ho_Chi_Minh
 
 | Day type | Days | Adult | Student |
 | --- | --- | --- | --- |
-| Discount day | Tuesday | 45,000 | 45,000 [Assumed] |
-| Weekday | Mon, Wed, Thu, Fri | 55,000 | 45,000 [Assumed] |
-| Weekend | Sat, Sun | 65,000 | 45,000 [Assumed] |
+| Discount day | Tuesday | 45,000 | 45,000 |
+| Weekday | Mon, Wed, Thu, Fri | 55,000 | 45,000 |
+| Weekend | Sat, Sun | 65,000 | 45,000 |
 
 - The discount day must be one of Monday–Friday.
 - The student price should not exceed the lowest adult price. Admin sees a warning if it does.
@@ -59,9 +59,12 @@ The day type comes from the showtime's **local start date** in `Asia/Ho_Chi_Minh
 ### 1.2 Seats
 
 **BR-07 – Seat map and inventory**
-- The physical layout belongs to a room. **Seat status belongs to a showtime**: each showtime has its own copy of every seat.
+- The physical layout belongs to a room. **Seat status belongs to a showtime**: seat A5 at 18:00 and seat A5 at 21:00 are independent.
 - Rows are contiguous, with no aisles. The back row(s) contain couple seats only; all other rows contain single seats.
-- Statuses per showtime: `AVAILABLE`, `HELD`, `SOLD`, `BLOCKED`. A `HELD` seat whose hold has expired counts as `AVAILABLE`.
+- Statuses per showtime: `AVAILABLE`, `HELD`, `SOLD`, `BLOCKED`.
+  - `SOLD`: recorded in PostgreSQL.
+  - `HELD`: a live hold in Redis; an expired hold counts as `AVAILABLE`.
+  - `BLOCKED`: the seat is deactivated in the room layout. This affects new holds only; existing sales stay valid.
 - The number of selected single seats must equal Adult + Student. The number of selected couple seats must equal the Couple quantity.
 
 **BR-08 – Orphan-seat rule** ("do not leave one empty seat at the left end, in the middle, or at the right end")
@@ -74,7 +77,7 @@ Applies to **single-seat rows only**. It is evaluated per row on the full select
 
 **Rule.** A selection is invalid if any orphan seat has its left or right neighbour in `selected`. Such an orphan was created by this selection; orphans that existed before never block a booking.
 
-**Exception** [Assumed]. For each run of empty seats computed *before* the selection: if the customer selected all seats of that run except one, **and the selected seats inside that run are contiguous**, the resulting orphan (necessarily at one end of the run) is allowed. This prevents dead ends when a showtime is nearly full, and does not allow splitting a group around one empty seat (`S _ S S` in a run of 4 is still invalid).
+**Exception.** For each run of empty seats computed *before* the selection: if the customer selected all seats of that run except one, **and the selected seats inside that run are contiguous**, the resulting orphan (necessarily at one end of the run) is allowed. This prevents dead ends when a showtime is nearly full, and does not allow splitting a group around one empty seat (`S _ S S` in a run of 4 is still invalid).
 
 **Reference test table.** Both implementations (Java and TypeScript) must pass exactly these cases. `X` = unavailable, `S` = selected, `_` = empty.
 
@@ -92,11 +95,11 @@ Applies to **single-seat rows only**. It is evaluated per row on the full select
 | 10 | `S _ S _ _ _ _ _ _ _` | Invalid | Seat 2 orphaned in the middle |
 | 11 | `X S _ S S X _ _ _ _` | Invalid | Run of 4 with 3 selected, but the selection is not contiguous |
 
-> Case 7 replaces the earlier draft in `IMPLEMENTATION-PLAN.md`, which listed it as invalid. Under the exception as written, a run of 2 with 1 selected is allowed. If the owner rejects the exception, cases 5 and 7 become **Invalid**.
+> Case 7 is valid under the confirmed exception (a run of 2 with 1 selected). An earlier draft listed it as invalid.
 
-**BR-09 – When seats are held.** Seats are held **when the customer confirms the selection** (Continue on the seat map), not on each click and not at payment. The hold lasts **10 minutes** [Assumed] [Config].
+**BR-09 – When seats are held.** Seats are held **when the customer confirms the selection** (Continue on the seat map), not on each click and not at payment. The hold lasts **10 minutes** [Config]. Holds are stored in Redis with a TTL; sales are stored in PostgreSQL (`ARCHITECTURE.md` §6).
 
-**BR-10 – One active hold.** A user or browser session has at most one active hold. Creating a new hold releases the previous one. Going back from snacks to seats releases the current hold.
+**BR-10 – One active hold.** A member account, or a guest browser (identified by its client id), has at most one active hold. Creating a new hold releases the previous one. Going back from snacks to seats releases the current hold.
 
 **BR-11 – Hold expiry**
 - An expired hold releases its seats. The booking becomes `EXPIRED` and can no longer be paid.
@@ -142,12 +145,13 @@ Allowed transitions: HOLDING→PENDING_PAYMENT, PENDING_PAYMENT→HOLDING (payme
 **BR-17 – Point expiry.** Each point-earning entry expires **12 months** after it was earned. "Qualifying points" = the sum of non-expired points earned in the last 12 months, minus reversals.
 
 **BR-18 – VIP tier**
-- One milestone: **Member → VIP** when qualifying points reach **50,000** [Assumed] [Config]. This equals 1,000,000 VND of tickets in 12 months.
+- One milestone: **Member → VIP** when qualifying points reach **50,000** [Config]. This equals 1,000,000 VND of tickets in 12 months.
 - VIP is granted immediately when the threshold is reached and lasts **12 months**.
 - On the VIP expiry date it renews for another 12 months only if qualifying points are still ≥ the threshold. Otherwise it lapses.
 - Refund reversals can drop qualifying points below the threshold. An already granted VIP period is **not** revoked by that.
 
-**BR-19 – VIP benefit.** VIP members get **15% off every snack and combo** [Assumed] [Config], applied automatically. The discount is evaluated at hold time and snapshotted on the booking. It never applies to tickets.
+**BR-19 – VIP benefit.** VIP members get **15% off every snack and combo** [Config], applied automatically. The discount is evaluated at hold time and snapshotted on the booking. It never applies to tickets.
+- **Rounding:** the discounted unit price is `price × (100 − pct) / 100`, **rounded down to the nearest 1,000 VND**. Example: 79,000 → 67,150 → **67,000**. Line total = discounted unit price × quantity.
 
 ### 1.5 Checkout and access
 
@@ -201,30 +205,52 @@ Allowed transitions: HOLDING→PENDING_PAYMENT, PENDING_PAYMENT→HOLDING (payme
 
 - **ER-07 – Flyway only.** The schema changes only through versioned Flyway migrations. `spring.jpa.hibernate.ddl-auto=validate`. Never edit an applied migration.
 - **ER-08 – Types.** Money is `BIGINT` VND (`long` in Java, `number` in TS, formatted only at display time). Instants are `timestamptz`. Enums are `text` with `CHECK` constraints.
-- **ER-09 – Integrity in the database.** Invariants are enforced by constraints where possible: the `(showtime_id, seat_id)` primary key, the room-overlap exclusion constraint, unique booking codes and transaction references.
-- **ER-10 – Seat locking order.** Any transaction that changes seats of a showtime locks the affected rows with `SELECT … FOR UPDATE` ordered by `seat_id`. Never update seat status without the conditional `WHERE` from `ARCHITECTURE.md` §6.
+- **ER-09 – Integrity in the database.** Invariants are enforced by constraints where possible: the `sold_seats (showtime_id, seat_id)` primary key (final anti-double-sale guarantee), the room-overlap exclusion constraint, unique booking codes and transaction references.
+- **ER-10 – Seat inventory protocol.** Seat holds are read and written **only** through the `SeatInventory` interface and its Lua scripts (`ARCHITECTURE.md` §6). In particular:
+  - No other code touches the `cb:{st:*}` keys.
+  - Every hold or release increments the row versions.
+  - Sales are written only by `BookingService.confirmPaid` into `sold_seats`, followed by `mark_sold` after commit.
+  - The orphan rule is never re-implemented in Lua.
+- **ER-10a – Redis conventions.**
+  - Keys start with `cb:`. Per-showtime keys use the hash tag `{st:<id>}`.
+  - Every key has a TTL or an `EXPIREAT`; no key lives forever.
+  - Lua scripts live in `src/main/resources/redis/`, are loaded via `EVALSHA`, and each has an integration test.
+  - Redis is never the only copy of data that must survive a restart.
 - **ER-11 – Translations in tables.** Translatable content uses `*_translations(entity_id, locale, …)` tables, never `title_vi`/`title_en` columns.
 
 ### 2.3 API and security
 
 - **ER-12 – DTOs only.** Controllers never expose JPA entities. Request DTOs are validated with Bean Validation.
 - **ER-13 – Secrets** (JWT, VNPay, SMTP, future LLM keys) come from environment variables. `.env` files are git-ignored. `.env.example` lists every variable.
-- **ER-14 – Rate limits** on login, booking lookup, hold creation and (later) chat messages and kiosk lookups.
+- **ER-14 – Rate limits** (Bucket4j with Redis) on login, booking lookup, hold creation and (later) chat messages and kiosk lookups.
 - **ER-15 – Personal data.** Phone numbers are masked everywhere except the owner's own views and admin. Personal data never goes into logs, and (later) never into LLM prompts beyond what the user typed.
 
 ### 2.4 Frontend
 
-- **ER-16 – No hard-coded user-facing strings.** Every string goes through i18n keys in `vi.json` and `en.json`.
+- **ER-16 – No hard-coded user-facing strings.** Every string goes through i18n keys, in per-feature namespace files `src/i18n/locales/{vi,en}/<namespace>.json`. A key must exist in both languages.
 - **ER-17 – Reusable booking components.** `SeatMap`, `TicketCounter`, `SnackPicker`, `ShowtimeList`, `MovieCard` and `HoldCountdown` are presentational: data comes in through props, events go out through callbacks, with no routing and no data fetching inside. They will be embedded in the chat widget and the kiosk.
 - **ER-18 – State.** Server data uses TanStack Query. Booking flow state uses a Zustand store persisted to `sessionStorage`. Authentication state lives in the auth store (access token in memory only).
 - **ER-19 – Design tokens only.** Use theme tokens and shared typography classes (`DESIGN.md`). No inline `style={{ fontFamily }}` as in the prototype.
 
 ### 2.5 Testing and workflow
 
-- **ER-20 – Mirrored rule tests.** The orphan-rule test table (`BR-08`) exists as a shared fixture file used by both the Java and the TypeScript tests.
-- **ER-21 – Must-have tests:** concurrency of holds, idempotent payment confirmation, late payment, pricing per day type, VIP evaluation with a fixed clock, refresh-token reuse detection.
+- **ER-20 – Mirrored rule tests.** Shared fixtures in `shared/fixtures/` are used by both the Java and the TypeScript tests:
+  - `orphan-rule-cases.json` (`BR-08`);
+  - `pricing-cases.json` (`BR-02`, `BR-03`, `BR-19`);
+  - `membership-cases.json` (`BR-16`…`BR-18`).
+- **ER-21 – Must-have tests:**
+  - concurrent holds (Redis), the neighbouring-seat race, version-conflict retry;
+  - idempotent payment confirmation, late payment (both branches);
+  - Redis-down behaviour;
+  - pricing per day type, VIP evaluation with a fixed clock;
+  - refresh-token reuse detection.
 - **ER-22 – Git.** Use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`), short-lived feature branches, and green CI before merging to `main`.
 - **ER-23 – Docs stay current.** A task is done only when `PROGRESS.md` is updated. A rule change updates `RULES.md` and the decision log in the same commit.
+- **ER-24 – Contract first.** `docs/api/openapi.yaml` is the API contract.
+  - The backend implements it exactly.
+  - The frontend uses types generated from it (`openapi-typescript`), with no hand-written API types.
+  - Changing an endpoint, schema or error code means changing the contract first, which is integrator-owned (`AGENT-EXECUTION-PLAN.md`).
+- **ER-25 – File ownership.** In parallel work, each task may edit only the paths it owns (`AGENT-EXECUTION-PLAN.md` §4). Shared files (`pom.xml`, `package.json`, lockfiles, `SecurityConfig`, `ErrorCode`, `router.tsx`, the contract, Flyway `V1`) change only through the integrator.
 
 ---
 

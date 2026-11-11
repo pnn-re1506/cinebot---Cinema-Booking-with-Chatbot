@@ -167,6 +167,8 @@ All of these are presentational (props in, callbacks out, `ER-17`) and accept a 
 | Count mismatch | Summary bar CTA disabled, with the reason "Select 1 more single seat" / "Chọn thêm 1 ghế đơn" |
 | Mobile | The map scales to fit the width up to a minimum seat size of 22 px, then scrolls horizontally. +/− zoom buttons. The selected-seats chip list stays visible in the summary bar. |
 | Refresh | Polling updates seats in place without layout shift. If a selected seat becomes taken, it is deselected and a toast explains it. |
+| Inventory unavailable | When the seat-map response has `inventoryAvailable=false` (Redis down, `FR-BKG-06a`): held seats cannot be shown, so a banner says "Seat selection is temporarily unavailable, please try again in a moment" / "Tạm thời chưa thể chọn ghế, vui lòng thử lại sau ít phút", and "Continue" stays disabled. Sold seats are still drawn. |
+| Blocked seats | Blocked at room level by admin; shown with ⊘ in every showtime of that room |
 
 ## 7. Information Architecture
 
@@ -228,7 +230,7 @@ Header: movie title, age badge, room, date, start time; a stepper "Tickets · Se
 | Step | Content | Leaving the step |
 | --- | --- | --- |
 | Tickets | `TicketCounter` ×3 with that day's prices; student note (`BR-27`); age notice for T16/T18 (`BR-28`) | "Choose seats", enabled when at least 1 ticket is chosen |
-| Seats | `SeatMap` + legend; live validation (`BR-07`, `BR-08`) | "Continue" creates the hold (`BR-09`). On `409`: toast + refreshed map. On `422 ORPHAN_SEAT`: highlight the seats. |
+| Seats | `SeatMap` + legend; live validation (`BR-07`, `BR-08`) | "Continue" creates the hold (`BR-09`). On `409`: toast + refreshed map. On `422 ORPHAN_SEAT`: highlight the seats. On `503 SEAT_SERVICE_UNAVAILABLE`: inventory-unavailable banner. |
 | Snacks | `SnackPicker` grid, VIP prices if applicable | "Book" goes to `/checkout/:bookingId`. "Back" releases the hold after a confirmation dialog (`BR-10`). |
 
 The `BookingSummaryBar` is always visible: selected seats, ticket breakdown, snacks, total.

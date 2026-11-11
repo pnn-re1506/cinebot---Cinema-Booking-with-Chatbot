@@ -1,0 +1,23 @@
+---
+description: Flyway migration rules - immutable V1, pre-assigned version ranges, constraint-first integrity
+globs: backend/src/main/resources/db/migration/**
+alwaysApply: false
+---
+
+# Database Migrations (Flyway, PostgreSQL 16)
+
+- Schema changes only via Flyway; Hibernate runs with `ddl-auto=validate`.
+- `V1__schema.sql` is the full v1 schema (`ARCHITECTURE.md` §5.2). **Never edit a migration after it is merged.**
+- New migrations use your task's pre-assigned range (`AGENT-EXECUTION-PLAN.md` §4.2), e.g. B6 → `V50__payment_index.sql`. Explain the need in your report.
+- Integrity in the database first (`ER-09`):
+  - `sold_seats` PK `(showtime_id, seat_id)`; room-overlap exclusion constraint (`btree_gist`); unique booking code and transaction refs.
+  - Enums as `text` + `CHECK`; money `bigint`; instants `timestamptz`.
+- There is **no** `showtime_seats` table: holds live in Redis, blocked seats are `seats.is_active=false`.
+- Every FK used in lookups has an index; add the indexes listed in `ARCHITECTURE.md` §5.3.
+- Seed/demo data is loaded by the seed loader, not by migrations (except the initial `pricing_policies` row).
+
+```sql
+-- ❌ status varchar(20)
+-- ✅
+status text NOT NULL CHECK (status IN ('HOLDING','PENDING_PAYMENT','CONFIRMED','EXPIRED','RELEASED','NEEDS_ATTENTION','REFUNDED'))
+```

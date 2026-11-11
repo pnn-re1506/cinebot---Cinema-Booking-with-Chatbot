@@ -1,0 +1,31 @@
+---
+description: Redis seat-hold protocol - SeatInventory, Lua scripts, key schema, failure handling
+globs: backend/src/main/java/com/cinebot/booking/**,backend/src/main/resources/redis/**,backend/src/main/java/com/cinebot/payment/**,backend/src/test/java/com/cinebot/booking/**
+alwaysApply: false
+---
+
+# Redis Seat Holds (`ARCHITECTURE.md` §6 – read it fully before editing)
+
+## Ownership
+- Redis owns **holds** (TTL). PostgreSQL owns **sales** (`sold_seats`, PK `(showtime_id, seat_id)` = final guarantee).
+- Only `RedisSeatInventory` / `SeatHoldCoordinator` touch `cb:{st:*}` keys, and only via the Lua scripts in `src/main/resources/redis/` (`ER-10`).
+
+## Keys (`ER-10a`)
+- Prefix `cb:`; per-showtime keys use hash tag `{st:<id>}` so one script touches one slot:
+  `cb:{st:42}:seat:<seatId>`, `cb:{st:42}:booking:<bookingId>`, `cb:{st:42}:rowver:<row>`, `cb:{st:42}:sold`, `cb:{st:42}:sold:ready`.
+- Owner key `cb:holdowner:<u:userId|c:clientId>`. Every key has a TTL/EXPIREAT.
+
+## Protocol
+- createHold: `snapshot` → Java validation (orphan rule `BR-08`, counts) → `commit_hold` with the row versions read; on `VERSION_CHANGED` retry (max 3). **Never put the orphan rule in Lua.**
+- Hold/release always bump the affected row versions.
+- Payment start: `extend_hold` (+2 min); `LOST` → `410 HOLD_EXPIRED`.
+- confirmPaid: lock payment `FOR UPDATE` → `claim_for_sale` → insert `sold_seats` (PK violation → `NEEDS_ATTENTION`) → after commit `mark_sold`.
+- Redis errors → `SeatInventoryUnavailableException` → `503 SEAT_SERVICE_UNAVAILABLE` for holds; seat map returns `inventoryAvailable=false`; confirmPaid proceeds on the PG PK alone.
+
+```java
+// ❌ redis.opsForValue().set("seat:" + id, bookingId);   // bypasses versions and TTL
+// ✅ seatInventory.hold(showtimeId, seatIds, bookingId, ttl, validator);
+```
+
+## Tests (Testcontainers Redis, required)
+- Each script result branch; 20 threads → 1 winner; A3/A5 neighbour race leaves no orphan; TTL expiry; `FLUSHALL` → sold mirror rebuilt; Redis stopped → typed exception.

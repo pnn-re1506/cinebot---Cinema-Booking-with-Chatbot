@@ -3,7 +3,7 @@
 | Item | Value |
 | --- | --- |
 | Product | CineBot – cinema ticket booking website with (later) a chatbot and a check-in kiosk |
-| Document status | v1.0 – active |
+| Document status | v1.1 – active (all v1 decisions confirmed) |
 | Last updated | 2026-11-11 |
 | Owner | Project owner (portfolio project) |
 | Release in scope | **v1 = Web booking + Admin**. Chatbot and Kiosk are planned modules (section 9). |
@@ -17,7 +17,11 @@
 | `ARCHITECTURE.md` | How the system is built: modules, data model, APIs, concurrency, security, extension points |
 | `DESIGN.md` | How the product looks and behaves: design system, screens, components, states |
 | `PROGRESS.md` | What is done, what is next, decision log, open questions |
-| `IMPLEMENTATION-PLAN.md` | Original detailed plan; kept for reference. If it disagrees with the files above, the files above win. |
+| `IMPLEMENTATION-PLAN.md` | Build plan: confirmed decisions, Redis seat-hold design summary, milestones |
+| `AGENT-EXECUTION-PLAN.md` | How the build is split into parallel AI-agent tasks (waves, ownership, gates) |
+| `api/openapi.yaml` *(created in Phase 0)* | The API contract |
+
+If the build or agent plans disagree with PRD / RULES / ARCHITECTURE / DESIGN, the latter win.
 
 ---
 
@@ -155,6 +159,7 @@ The rules referenced as `BR-xx` are defined in `RULES.md`.
 | FR-BKG-04 | "Continue" is enabled only when the selected seats match the ticket quantities and the rule passes. Clicking it creates a **hold** (`BR-09`, `BR-10`). |
 | FR-BKG-05 | A countdown shows the remaining hold time from the snacks step to the end of payment. When the hold expires, the customer is sent back to the seat map (`BR-11`). |
 | FR-BKG-06 | If a seat was taken meanwhile, the customer sees a clear message and the refreshed seat map. |
+| FR-BKG-06a | If seat holding is temporarily unavailable, the seat map still shows sold seats, explains the problem, and disables "Continue". |
 | FR-BKG-07 | The customer can add snacks/combos with quantities. VIP members see discounted prices (`BR-19`). |
 | FR-BKG-08 | Going back from snacks to seats releases the hold. |
 
@@ -227,7 +232,8 @@ The rules referenced as `BR-xx` are defined in `RULES.md`.
 
 | Area | Requirement |
 | --- | --- |
-| Correctness | Seat holds and payment confirmation are transactional and idempotent (`ARCHITECTURE.md` §6). |
+| Correctness | Seat holds (Redis, atomic) and payment confirmation (PostgreSQL, idempotent) can never double-sell a seat, including when Redis is unavailable or loses data (`ARCHITECTURE.md` §6). |
+| Availability | If the seat-hold service is down, browsing still works and the UI explains that seat selection is temporarily unavailable. |
 | Security | Server-side pricing, hashed passwords, rotating refresh tokens, rate limits on login/lookup/hold, no card data stored, secrets in environment variables. |
 | Privacy | Collect only name, phone and email. Mask phone numbers on any shared or public screen. |
 | Accessibility | Keyboard-operable seat map, labelled statuses, WCAG AA contrast (`DESIGN.md` §9). |
@@ -289,9 +295,17 @@ These requirements are recorded now so the v1 design supports them. Their rules 
 
 ## 10. Assumptions and Open Questions
 
-See `PROGRESS.md` → *Decision log* and *Open questions* for the live list. Key items still pending:
-- Values chosen on the owner's behalf (student price, hold duration, VIP threshold, orphan-rule exception): **assumed, pending confirmation**.
-- What "STT" on the kiosk means (print sequence, ticket index, or queue number).
+See `PROGRESS.md` → *Decision log* and *Open questions* for the live list.
+
+All v1 business values were **confirmed on 2026-11-11**:
+- student price 45,000;
+- hold of 10 minutes (Redis);
+- orphan-rule exception;
+- VIP at 50,000 points with 15% off snacks;
+- couple seat = 1 ticket admitting 2;
+- VNPay sandbox + Demo Pay.
+
+Still open: what "STT" on the kiosk means (print sequence, ticket index, or queue number).
 
 ## 11. Glossary
 

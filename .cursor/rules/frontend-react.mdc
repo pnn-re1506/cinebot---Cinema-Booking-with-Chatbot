@@ -1,0 +1,31 @@
+---
+description: Frontend conventions - feature folders, generated API types, i18n namespaces, tokens, reusable booking components
+globs: frontend/src/**/*.ts,frontend/src/**/*.tsx
+alwaysApply: false
+---
+
+# Frontend (Vite, React 18, TypeScript, Tailwind v4, shadcn/ui)
+
+## Structure (`ARCHITECTURE.md` §11)
+- `pages/` thin route components; logic in `features/<feature>/`; shared UI in `components/`.
+- Routes are registered in `app/router.tsx` (integrator-owned); replace your page file only.
+
+## Data and state (`ER-18`)
+- API types only from `lib/api/schema.d.ts` (generated from `openapi.yaml`). No hand-written API types.
+- All requests through `lib/api/client.ts` (adds auth, `Accept-Language`, `X-Booking-Token`, `X-Client-Id`).
+- Server data: TanStack Query. Booking flow: Zustand store (sessionStorage). Access token in memory only.
+- Mocks: your feature's MSW file `mocks/handlers/<feature>.ts`, shaped exactly like the contract.
+
+## UI
+- Text only via i18n keys in your namespace, in **both** `vi` and `en` (`ER-16`). Errors: map `code` → `errors:<CODE>`.
+- Tokens and type classes from `DESIGN.md` §3–4; no hex colours, no inline `style={{ fontFamily }}` (`ER-19`).
+- `SeatMap`, `TicketCounter`, `SnackPicker`, `ShowtimeList`, `MovieCard`, `HoldCountdown` are presentational: props in, callbacks out, no fetching or routing inside (`ER-17`).
+- Every screen handles loading, empty and error states; interactive elements are keyboard reachable and labelled.
+
+```tsx
+// ❌ <p style={{ color: '#d4a843' }}>Còn 5 ghế</p>
+// ✅
+<p className="text-primary">{t('booking:seatsLeft', { count: 5 })}</p>
+```
+
+- Money/dates via `lib/money.ts` and `lib/dates.ts`; never `toLocaleString` ad hoc.

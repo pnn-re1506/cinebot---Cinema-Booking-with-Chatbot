@@ -1,0 +1,35 @@
+---
+description: Testing rules - shared fixtures, deterministic tests, Testcontainers, must-have scenarios
+globs: backend/src/test/**,frontend/src/**/*.test.ts,frontend/src/**/*.test.tsx,e2e/**,shared/fixtures/**
+alwaysApply: false
+---
+
+# Testing
+
+## Shared fixtures (`ER-20`)
+- `shared/fixtures/orphan-rule-cases.json`, `pricing-cases.json`, `membership-cases.json` are run by **both** Java and TS tests. Never copy cases into test code; load the file.
+- Fixtures are integrator-owned. A failing case means the code is wrong, unless you report a fixture issue.
+
+## Determinism
+- Fixed `Clock` (Java) / fake timers (Vitest) for anything time-based; no `Thread.sleep` beyond polling helpers with a timeout.
+- Tests are independent of order and of each other's data.
+
+## Backend
+- Unit tests for `domain/` (plain JUnit 5, parameterized from fixtures).
+- Integration tests extend `IntegrationTestBase` (Testcontainers PostgreSQL + Redis). No H2, no embedded Redis.
+- API tests assert status **and** `ProblemDetail.code`.
+
+## Frontend
+- Vitest + Testing Library + MSW; query by role/label, not by class names.
+
+## Must-have scenarios (`ER-21`)
+- 20 concurrent holds → 1 winner; A3/A5 race → no orphan; version-conflict retry.
+- Duplicate IPN idempotent; late payment (seats free / taken); confirm while Redis is down sells exactly once.
+- Redis down → 503 on hold, read-only seat map.
+- Price per day type (Tue/Wed/Sat, 00:30 screening); VIP snack rounding; VIP gain/expiry with fixed clock.
+- Refresh-token reuse revokes the family.
+
+```java
+// ❌ assertEquals(409, res.status());
+// ✅ assertThat(res).hasStatus(409).hasProblemCode("SEAT_UNAVAILABLE");
+```

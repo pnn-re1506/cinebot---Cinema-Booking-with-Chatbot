@@ -1,0 +1,32 @@
+---
+description: CineBot core rules - sources of truth, scope, ownership and non-negotiables for every task
+alwaysApply: true
+---
+
+# CineBot – Core Rules
+
+Cinema booking demo (one cinema, 5 rooms). Backend Java 21 + Spring Boot + PostgreSQL 16 + Redis 7; frontend Vite + React 18 + TS + Tailwind v4 + shadcn/ui. Chatbot and kiosk are **planned, not built**.
+
+## Sources of truth (read before coding; they win over skills and habits)
+- `docs/RULES.md` – business rules `BR-*` and engineering rules `ER-*`
+- `docs/ARCHITECTURE.md` – modules, schema, Redis hold design (§6), API (§9)
+- `docs/DESIGN.md` – tokens, components, screens
+- `docs/api/openapi.yaml` – the API contract (`ER-24`)
+- `docs/AGENT-EXECUTION-PLAN.md` – task cards and file ownership (§4)
+
+## Non-negotiables
+- Never invent business values or rules. If unclear, stop and ask / report a question.
+- Edit only the paths your task owns. Shared files (`pom.xml`, `package.json`, lockfiles, `SecurityConfig`, `ErrorCode`, `router.tsx`, `openapi.yaml`, `V1__schema.sql`) are integrator-only (`ER-25`).
+- Server is the authority for prices, seats, points and rules (`ER-03`); client checks are UX only.
+- Business logic lives in channel-agnostic application services (`ER-01`) so the future chat/kiosk reuse it.
+- Errors are `ProblemDetail` with a stable `code`; no user-facing sentences from the backend (`ER-05`).
+- Seat holds go only through `SeatInventory` (Redis + Lua); sales only through `confirmPaid` into `sold_seats` (`ER-10`).
+- Money is integer VND (`long` / `number`). Time comes from an injected `Clock` (`ER-06`).
+- No secrets in code; no personal data in logs (`ER-13`, `ER-15`).
+
+## Done means
+- Tests for every behaviour you added; verification commands pass:
+  - Backend: `cd backend; .\mvnw.cmd -B verify`
+  - Frontend: `cd frontend; pnpm lint; pnpm typecheck; pnpm test --run; pnpm build`
+- No TODOs, skipped tests or commented-out code. Conventional Commits.
+- Report deviations and doc updates instead of silently diverging (`ER-23`).

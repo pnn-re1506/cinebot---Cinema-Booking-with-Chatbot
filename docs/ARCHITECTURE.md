@@ -2,7 +2,7 @@
 
 | Item | Value |
 | --- | --- |
-| Status | v1.0 – target architecture (implementation not started) |
+| Status | v1.1 – target architecture with Redis seat holds (implementation not started) |
 | Last updated | 2026-11-11 |
 | Related | `PRD.md` (scope), `RULES.md` (BR/ER rules), `DESIGN.md` (UI), `PROGRESS.md` (status) |
 
@@ -12,7 +12,7 @@
 
 1. **Modular monolith.** One Spring Boot application split into feature modules. It is simple to run, deploy and explain, and modules can be extracted later if ever needed.
 2. **One set of use cases, many channels.** Web, chatbot and kiosk call the same application services (`ER-01`). Channels differ only in presentation.
-3. **The database guards the invariants.** Primary keys, exclusion constraints and row locks make double booking impossible, not just unlikely (`ER-09`, `ER-10`).
+3. **Two stores, clear ownership.** Redis owns temporary **holds**. PostgreSQL owns **sales** and is the final guarantee: the `sold_seats` primary key makes double selling impossible even if Redis loses data (`ER-09`, `ER-10`).
 4. **Server is the authority** for prices, availability and rules (`ER-03`).
 5. **Testable time.** An injected `Clock` drives holds, the rolling window and VIP expiry (`ER-06`).
 6. **Demo-first operations.** Self-healing data (rolling showtimes, nightly reset) keeps the public demo usable without maintenance.
@@ -25,10 +25,12 @@
 | Framework | Spring Boot (latest stable at project start) | Web, Validation, Data JPA, Security, OAuth2 Resource Server (JWT), Mail, Actuator |
 | Build | Maven | |
 | Database | PostgreSQL 16 | Extensions: `btree_gist`, `pgcrypto` |
+| In-memory store | Redis 7 (Spring Data Redis, Lettuce) | Seat holds (Lua scripts), sold-seat mirror, pub/sub, rate limits, ShedLock, catalogue cache |
 | Migrations | Flyway | `ddl-auto=validate` (`ER-07`) |
 | Mapping | MapStruct | Lombok optional |
 | API docs | springdoc-openapi | Swagger UI at `/swagger-ui` |
-| Rate limiting | Bucket4j (in-memory) | Replace with Redis-backed if scaled out |
+| Rate limiting | Bucket4j (Redis / Lettuce backend) | Works across instances |
+| Job locking | ShedLock (Redis provider) | Each scheduled job runs once even with several instances |
 | QR codes | ZXing | |
 | Email | Spring Mail + Thymeleaf | Outbox pattern |
 | Tests | JUnit 5, AssertJ, MockMvc, Testcontainers | |
@@ -54,7 +56,8 @@ flowchart LR
 
     subgraph Backend [Spring Boot modular monolith]
         API[REST controllers] --> SVC[Application services]
-        SVC --> DB[(PostgreSQL)]
+        SVC --> DB[(PostgreSQL<br/>source of truth, sold seats)]
+        SVC --> RD[(Redis<br/>holds, sold mirror, pub/sub,<br/>rate limits, job locks)]
         JOBS[Scheduled jobs] --> SVC
         CHAT[chat module - planned] -.-> SVC
     end
@@ -78,7 +81,7 @@ com.cinebot
 ├── cinema        cinema, rooms, seats, layout generator
 ├── schedule      showtimes, templates, rolling generator, simulated occupancy
 ├── pricing       pricing policies, PriceCalculator
-├── booking       holds, OrphanSeatRule, snacks, customer info, lookup, hold expiry
+├── booking       SeatInventory (Redis + Lua), holds, OrphanSeatRule, snacks, customer info, lookup, hold expiry
 ├── payment       PaymentGateway (VNPay, Mock), IPN, reconciliation
 ├── ticket        ticket issuing, QR tokens            (check-in added later)
 ├── membership    point ledger, VIP evaluation
@@ -132,8 +135,9 @@ erDiagram
     MOVIE ||--o{ SHOWTIME_TEMPLATE : schedules
     MOVIE ||--o{ SHOWTIME : shown_in
     ROOM ||--o{ SHOWTIME : hosts
-    SHOWTIME ||--o{ SHOWTIME_SEAT : has
-    SEAT ||--o{ SHOWTIME_SEAT : copied_as
+    SHOWTIME ||--o{ SOLD_SEAT : sells
+    SEAT ||--o{ SOLD_SEAT : sold_as
+    BOOKING ||--o{ SOLD_SEAT : owns
     BOOKING ||--o{ BOOKING_SEAT : contains
     BOOKING ||--o{ BOOKING_SNACK : contains
     BOOKING ||--o{ PAYMENT : paid_by
@@ -161,7 +165,8 @@ refresh_tokens   id, user_id FK, token_hash UNIQUE, family_id uuid, expires_at,
 cinemas          id, name, address, phone, timezone               -- 1 row in v1
 rooms            id, cinema_id FK, name, cleanup_minutes DEFAULT 15, is_active, is_seed
 seats            id, room_id FK, row_label, seat_number, col_index,
-                 seat_type CHECK (SINGLE|COUPLE), is_active,
+                 seat_type CHECK (SINGLE|COUPLE),
+                 is_active,                        -- false = blocked (not sellable in future holds)
                  UNIQUE (room_id, row_label, seat_number)
 ```
 
@@ -190,11 +195,11 @@ showtimes            id, movie_id FK, room_id FK, starts_at, ends_at, blocked_un
                      UNIQUE (room_id, starts_at),
                      EXCLUDE USING gist (room_id WITH =, tstzrange(starts_at, blocked_until) WITH &&)
                        WHERE (status <> 'CANCELLED')
-showtime_seats       showtime_id FK, seat_id FK,
-                     status CHECK (AVAILABLE|HELD|SOLD|BLOCKED),
-                     booking_id uuid NULL, hold_expires_at NULL,
-                     PRIMARY KEY (showtime_id, seat_id)
+sold_seats           showtime_id FK, seat_id FK, booking_id uuid FK, sold_at,
+                     PRIMARY KEY (showtime_id, seat_id)         -- final anti-double-sale guarantee
 ```
+
+Holds are **not** stored in PostgreSQL. They live in Redis (§6). A seat of a showtime is *sold* if it has a `sold_seats` row, *held* if Redis has a live hold key, *blocked* if `seats.is_active = false`, and *available* otherwise. Seat A5 at 18:00 and A5 at 21:00 are independent because every key and row includes `showtime_id`.
 
 **Pricing and snacks**
 ```
@@ -238,11 +243,12 @@ audit_log        id, actor_user_id, action, entity_type, entity_id, changes json
 
 ### 5.3 Indexes
 
-`showtimes (movie_id, starts_at)`, `showtimes (room_id, starts_at)`, `showtime_seats (booking_id)`, partial `showtime_seats (hold_expires_at) WHERE status = 'HELD'`, `bookings (user_id, created_at DESC)`, `bookings (status, hold_expires_at)`, `point_ledger (user_id, earned_at)`, `payments (status, created_at)`.
+`showtimes (movie_id, starts_at)`, `showtimes (room_id, starts_at)`, `sold_seats (booking_id)`, `bookings (user_id, created_at DESC)`, `bookings (status, hold_expires_at)`, `point_ledger (user_id, earned_at)`, `payments (status, created_at)`.
 
 ### 5.4 Size estimate
 
-5 rooms × ~5 showtimes/day × 7 days × ~130 seats ≈ **23k `showtime_seats` rows** in the rolling window. Older rows are purged by the nightly reset (`BR-26`).
+- PostgreSQL: about 175 showtimes in the rolling window (5 rooms × ~5/day × 7 days). With ~25% simulated occupancy, that is roughly 6k `sold_seats` rows. Older rows are purged nightly (`BR-26`).
+- Redis: at most a few hundred hold keys at once, plus one sold set and ~10 row-version keys per showtime. Well under 5 MB.
 
 ### 5.5 Seed layouts (5 rooms)
 
@@ -254,58 +260,110 @@ audit_log        id, actor_user_id, action, entity_type, entity_id, changes json
 | Room 4 | A–H: 8 × 12 | I: 6 | 108 |
 | Room 5 | A–F: 6 × 10 | G: 5 | 70 |
 
-## 6. Concurrency and Consistency
+## 6. Concurrency and Consistency (Redis holds + PostgreSQL sales)
 
-### 6.1 Creating a hold (`BookingService.createHold`)
+### 6.1 Ownership
 
-One transaction (READ COMMITTED):
+| Store | Owns | Guarantee |
+| --- | --- | --- |
+| Redis | **Holds** (TTL = hold duration), row versions, sold mirror, seat events | Atomic Lua scripts; TTL frees seats without any job |
+| PostgreSQL | **Sales** (`sold_seats`), bookings, payments, tickets | Primary key `(showtime_id, seat_id)` = final anti-double-sale guarantee |
 
-```sql
--- 1. Lock all seats in the rows touched by the request, in a fixed order (ER-10).
-SELECT ss.seat_id, ss.status, ss.booking_id, ss.hold_expires_at
-FROM showtime_seats ss JOIN seats s ON s.id = ss.seat_id
-WHERE ss.showtime_id = :showtimeId AND s.row_label IN (:rowLabels)
-ORDER BY ss.seat_id
-FOR UPDATE OF ss;
+Invariant: **a seat is held only in Redis and sold only in PostgreSQL.** Losing Redis data loses unpaid holds (bad UX) but never causes a double sale.
+
+All seat-inventory access goes through the `SeatInventory` interface (`booking` module). `RedisSeatInventory` implements it, with the scripts in `src/main/resources/redis/*.lua`. No other code touches the seat keys (`ER-10`).
+
+### 6.2 Redis key schema
+
+All keys of one showtime share the hash tag `{st:<showtimeId>}`, so multi-key Lua scripts stay valid on Redis Cluster.
+
+| Key | Type | TTL | Meaning |
+| --- | --- | --- | --- |
+| `cb:{st:42}:seat:<seatId>` | string = bookingId | hold TTL | Seat held by the booking |
+| `cb:{st:42}:booking:<bookingId>` | set of seatIds | hold TTL | Seats of one hold |
+| `cb:{st:42}:rowver:<rowLabel>` | integer | showtime end + 1 day | Row version (optimistic concurrency) |
+| `cb:{st:42}:sold` | set of seatIds | showtime end + 1 day | Mirror of `sold_seats` |
+| `cb:{st:42}:sold:ready` | string | showtime end + 1 day | Mirror has been loaded |
+| `cb:holdowner:<ownerKey>` | string `<showtimeId>:<bookingId>` | hold TTL | One active hold per owner (`BR-10`) |
+| channel `cb:seat-events:<showtimeId>` | pub/sub | — | `HELD`, `RELEASED`, `SOLD` events |
+
+`ownerKey` is `u:<userId>` for members and `c:<clientId>` for guests (the `X-Client-Id` header, §7.3).
+
+### 6.3 Lua scripts
+
+| Script | Keys | Atomic behaviour | Returns |
+| --- | --- | --- | --- |
+| `load_sold.lua` | sold, ready | If ready exists: no-op. Otherwise `SADD` the seat ids read from PG, set ready, `EXPIREAT` both. | `LOADED` / `ALREADY` |
+| `snapshot.lua` | sold, rowvers, seat keys | Reads sold flags, holders and row versions in one step | arrays |
+| `commit_hold.lua` | rowvers, seat keys, booking set, sold | Row versions must equal the expected ones → `VERSION_CHANGED`. Each seat must not be sold → `SEAT_SOLD`, nor held by another booking → `SEAT_HELD`. Then `SET … PX ttl` for each seat, `SADD` + `PEXPIRE` the booking set, `INCR` the row versions, `PUBLISH HELD`. | `OK` / code + seat ids |
+| `release_hold.lua` | booking set, seat keys, rowvers | Delete only the seat keys whose value is this booking, delete the set, `INCR` versions, `PUBLISH RELEASED` | count |
+| `extend_hold.lua` | booking set, seat keys | All seats still owned → `PEXPIRE` all to the new TTL; otherwise no change | `OK` / `LOST` |
+| `claim_for_sale.lua` | seat keys, sold, booking set | Each seat must be neither sold nor held by another booking. Owned **or free again** seats are (re)set as owned with a 5 min TTL. | `OK` / `TAKEN` + seat ids |
+| `mark_sold.lua` | sold, seat keys, booking set, rowvers | `SADD sold`, delete own hold keys and the set, `INCR` versions, `PUBLISH SOLD` | `OK` |
+
+Scripts are loaded once (`EVALSHA`, with a fallback to `EVAL` on `NOSCRIPT`). Every script has an integration test.
+
+### 6.4 Creating a hold (`BookingService.createHold`)
+
+```
+1. Validate (Java): showtime SCHEDULED and not started (BR-24); seats exist in the room and are active;
+   counts match seat types and size (BR-05, BR-07).
+2. Release the owner's previous hold if any (BR-10).
+3. ensureSoldMirrorLoaded(showtimeId): if `sold:ready` is missing, read sold_seats from PG → load_sold.lua.
+4. Up to 3 attempts:
+     snap = snapshot.lua(rows touched by the request)
+     Java: unavailable = sold ∪ held-by-others ∪ inactive seats
+           requested seats all available?  OrphanSeatRule passes for each single row? (BR-08)
+     r = commit_hold.lua(expected row versions, seatIds, bookingId, ttl = hold_expires_at − now)
+     OK → continue;  VERSION_CHANGED → next attempt;  SEAT_SOLD / SEAT_HELD → 409 SEAT_UNAVAILABLE
+   Three version conflicts → 409 SEAT_UNAVAILABLE (client refreshes the map).
+5. PostgreSQL tx: insert booking HOLDING, booking_seats with price snapshot (BR-04, BR-19), hold_expires_at.
+   On failure → release_hold.lua (compensation) and rethrow.
+6. SET cb:holdowner:<owner> PX ttl.
 ```
 
-2. In Java, on the locked rows:
-   - treat expired holds as available;
-   - verify that the showtime is open for sale (`BR-24`), the counts are valid (`BR-05`, `BR-07`), every requested seat is available, and the orphan rule passes per row (`BR-08`);
-   - release the caller's previous active hold (`BR-10`);
-   - compute and snapshot prices (`BR-04`, `BR-19`).
-3. Take the seats and create the booking:
+**Why it is correct:** every hold and release in a row increments that row's version, so the row cannot gain a hold between the snapshot and the commit without the commit failing. TTL expiry can only free seats, which never turns a passing selection into an unsafe one. The orphan rule is implemented only in Java (and in TypeScript for UX), never in Lua (`ER-20`). Two customers choosing A3 and A5 in the same row: one commit increments the row version first, the other retries, sees the new hold, and is rejected by the orphan rule.
 
-```sql
-UPDATE showtime_seats
-SET status = 'HELD', booking_id = :bookingId, hold_expires_at = :expiresAt
-WHERE showtime_id = :showtimeId AND seat_id IN (:seatIds);
+### 6.5 Payment start and expiry
+
+- **Payment start:** `extend_hold.lua` sets the TTL to `hold_expires_at + 2 min` grace (`BR-11`). `LOST` → `410 HOLD_EXPIRED` and no payment is created.
+- **Expiry:** Redis TTL frees the seats with no job. `HoldExpiryJob` (every 30 s, PG only) moves `HOLDING` bookings past `hold_expires_at`, and `PENDING_PAYMENT` bookings past `hold_expires_at + 2 min`, to `EXPIRED`.
+- **Release:** `DELETE /api/bookings/{id}` → `release_hold.lua` + booking `RELEASED`.
+
+### 6.6 Confirming after payment (`BookingService.confirmPaid`)
+
+```
+1. PG tx: SELECT payment FOR UPDATE. Already SUCCEEDED → return the "already confirmed" result (idempotent, BR-13).
+2. claim_for_sale.lua(bookingId, seats, ttl = 5 min)
+     TAKEN → payment SUCCEEDED, booking NEEDS_ATTENTION, commit, return (BR-14)
+     Redis unavailable → skip (see below)
+3. INSERT sold_seats …  (primary key violation → roll back to a savepoint, NEEDS_ATTENTION)
+   booking CONFIRMED, tickets, points (membership), email outbox (notification); commit.
+4. @TransactionalEventListener(AFTER_COMMIT): mark_sold.lua. On failure: log; SoldSetReconcileJob repairs the mirror.
 ```
 
-The whole row is locked because the orphan rule depends on neighbours. Two customers picking A3 and A5 at the same time are serialized, so the second sees the first's hold and is rejected. Rows hold at most about 16 seats, so contention is negligible.
+Skipping step 2 during a Redis outage is safe. Without Redis nobody can create new holds, so the only possible competitor is another sale, which the primary key rejects.
 
-### 6.2 Confirming after payment (`BookingService.confirmPaid`)
+### 6.7 Seat-map read
 
-```sql
-UPDATE showtime_seats SET status = 'SOLD', hold_expires_at = NULL
-WHERE showtime_id = :showtimeId AND booking_id = :bookingId AND status = 'HELD';
-```
+`GET /api/showtimes/{id}/seat-map` = room layout (in-memory cache) + sold set (Redis mirror, loaded from PG on miss) + holders (`MGET` of the showtime's seat keys, pipelined). Seats held by the caller's own booking (matching `X-Booking-Token`) are returned as `HELD_BY_YOU`. The response is never cached elsewhere.
 
-If the updated row count is not equal to the booking's seat count, the hold was lost. The service then follows `BR-14`: it locks the rows as in 6.1, re-takes the seats if they are free, and otherwise sets `NEEDS_ATTENTION`.
+### 6.8 Failure modes
 
-In the same transaction: mark the payment `SUCCEEDED`, the booking `CONFIRMED`, issue tickets, earn points, and enqueue the email.
+| Failure | Effect | Handling |
+| --- | --- | --- |
+| Redis unavailable | Holds cannot be created | Catalogue still works. Seat map returns sold seats from PG plus `inventoryAvailable=false`, and the UI disables "Continue". `POST /bookings` → `503 SEAT_SERVICE_UNAVAILABLE`. Confirmation uses the PG primary key only. |
+| Redis restarted without data | Unpaid holds lost; mirror lost | Payment start → `HOLD_EXPIRED`. Mirror reloads from PG (`sold:ready` missing). No double sale. |
+| `mark_sold.lua` fails after commit | Mirror misses seats | Hold keys still block the seats for ≤ 5 min. `SoldSetReconcileJob` (every 1 min, upcoming showtimes) compares `SCARD` with the PG count and deletes `sold` + `ready` on mismatch, forcing a reload. The PG primary key backstops any gap. |
+| Duplicate / concurrent IPN | — | Payment row lock + `SUCCEEDED` check |
+| Admin refund | Seats become sellable again | Delete the `sold_seats` rows, then delete `sold` + `ready` in Redis to force a reload |
 
-**Idempotency:** the IPN handler first loads the payment `FOR UPDATE`. If it is already `SUCCEEDED`, it returns the "already confirmed" response without side effects.
+Production Redis should enable AOF persistence (`appendonly yes`, `appendfsync everysec`) where the host allows it.
 
-### 6.3 Expiry
+### 6.9 Seat map freshness
 
-- **Lazy:** every query treats `HELD AND hold_expires_at < now()` as available. Correctness never depends on the job.
-- **Job `HoldExpiryJob` (every 30 s):** releases expired seats and marks bookings `EXPIRED`. It applies the 2-minute grace period to `PENDING_PAYMENT` bookings (`BR-11`).
-
-### 6.4 Seat map freshness
-
-- v1: clients poll `GET /api/showtimes/{id}/seat-map` every 5 s while the seat map is visible, and always after a `409`.
-- Planned: SSE stream `GET /api/showtimes/{id}/seat-events` (§10.1). `BookingService` already publishes Spring application events (`SeatsHeld`, `SeatsReleased`, `SeatsSold`) in v1, so adding SSE later only needs a listener and an endpoint.
+- v1: clients poll the seat map every 5 s while it is visible, and always after a `409`.
+- Planned: SSE `GET /api/showtimes/{id}/seat-events`, fed by the Redis pub/sub channel that the Lua scripts **already publish to in v1**. This works across multiple backend instances (§10.1).
 
 ## 7. Authentication and Authorization
 
@@ -337,6 +395,8 @@ flowchart TD
 
 `POST /api/bookings` returns a random `bookingToken`. The server stores `access_token_hash`, and every booking-scoped endpoint requires `X-Booking-Token`. Members are additionally authorized by `user_id`. The same mechanism lets the **chat hand a booking to the checkout page** and lets a **kiosk act on a booking** without a user session.
 
+**Client id (guests).** The frontend generates a random UUID once, stores it in `localStorage` and sends it as `X-Client-Id` on `POST /api/bookings`. It identifies the hold owner for `BR-10` (`cb:holdowner:c:<clientId>`). Members use `u:<userId>` instead. The client id is not a security credential; it only scopes "one active hold".
+
 ### 7.4 Authorization matrix
 
 | Endpoint group | Public | Booking token | CUSTOMER | STAFF (planned) | ADMIN | KIOSK device (planned) |
@@ -356,18 +416,23 @@ flowchart TD
 sequenceDiagram
     participant U as Browser
     participant API as Spring Boot
+    participant RD as Redis
     participant DB as PostgreSQL
     participant VNP as VNPay Sandbox
     U->>API: POST /bookings (showtimeId, counts, seatIds)
-    API->>DB: lock rows, validate, HELD, booking HOLDING
+    API->>RD: snapshot rows, then commit_hold (row versions)
+    API->>DB: insert booking HOLDING + price snapshot
     API-->>U: bookingId, bookingToken, holdExpiresAt
     U->>API: PUT /bookings/{id}/snacks, PUT /customer (guest)
     U->>API: POST /bookings/{id}/payments VNPAY
+    API->>RD: extend_hold (+2 min grace)
     API->>DB: payment INITIATED, booking PENDING_PAYMENT
     API-->>U: signed redirect URL (expires at hold expiry)
     U->>VNP: pay with test card
     VNP->>API: IPN (signed)
-    API->>DB: confirmPaid tx (seats SOLD, CONFIRMED, tickets, points, outbox)
+    API->>RD: claim_for_sale
+    API->>DB: confirmPaid tx (sold_seats, CONFIRMED, tickets, points, outbox)
+    API->>RD: after commit: mark_sold
     API-->>VNP: RspCode
     VNP-->>U: redirect to /checkout/{id}/result
     U->>API: poll GET /bookings/{id} until final
@@ -409,14 +474,15 @@ public interface PaymentGateway {
 
 | Job | Schedule (cinema time) | Purpose |
 | --- | --- | --- |
-| `HoldExpiryJob` | every 30 s | Release expired holds (`BR-11`) |
+| `HoldExpiryJob` | every 30 s | Move expired bookings to `EXPIRED` in PG (Redis TTL already freed the seats) (`BR-11`) |
+| `SoldSetReconcileJob` | every 1 min | Compare the Redis sold mirror with `sold_seats` for upcoming showtimes; force a reload on mismatch (§6.8) |
 | `PaymentReconciliationJob` | every 1 min | Resolve pending VNPay payments |
 | `EmailOutboxJob` | every 30 s | Send emails with retry/backoff |
 | `RollingShowtimeJob` | 00:05 daily + startup + lazy guard | Keep 7 days of showtimes (`BR-25`) |
 | `VipEvaluationJob` | 01:00 daily | Renew or lapse VIP (`BR-18`) |
 | `DemoResetJob` | 03:00 daily | Restore seed data, purge old data (`BR-26`) |
 
-The lazy guard is needed because free hosting may sleep at midnight. `CatalogService` checks "has the window been generated for today?" on the first request of a day and triggers generation if not. If the app ever runs with more than one instance, add ShedLock.
+The lazy guard is needed because free hosting may sleep at midnight. `CatalogService` checks "has the window been generated for today?" on the first request of a day and triggers generation if not. All jobs use **ShedLock with the Redis provider**, so they run once even with several instances.
 
 ## 9. API
 
@@ -482,6 +548,7 @@ GET  /api/me/membership
 | 422 | `TICKET_COUNT_MISMATCH`, `BOOKING_TOO_LARGE`, `SALES_CLOSED`, `NOT_BOOKABLE` | `BR-05`, `BR-07`, `BR-24`, `BR-23` |
 | 422 | `SEED_PROTECTED` | Deleting seed data (`BR-26`) |
 | 429 | `RATE_LIMITED` | |
+| 503 | `SEAT_SERVICE_UNAVAILABLE` | Redis unavailable; holds cannot be created (§6.8) |
 
 ### 9.3 Localisation
 
@@ -496,7 +563,9 @@ v1 deliberately includes the following hooks so the chatbot and the kiosk can be
 | Channel-agnostic application services (`ER-01`) | Chat tools, kiosk endpoints |
 | `bookings.channel` | Chat (`CHAT`), kiosk walk-up sales (`KIOSK`) |
 | Booking token (§7.3) | Chat → checkout handoff, kiosk acting on a booking |
-| Domain events `SeatsHeld/Released/Sold` | SSE seat stream for chat and seat map |
+| `SeatInventory` interface (Redis) | Chat `get_seat_map` / `suggest_seats`, kiosk walk-up sales |
+| Redis pub/sub channel `cb:seat-events:<showtimeId>` (published by the Lua scripts) | SSE seat stream for chat and seat map, multi-instance |
+| Redis already deployed (rate limits, caches) | Chat answer cache, LLM budget counters, chat session memory, kiosk lookup rate limits |
 | Error codes instead of messages (`ER-05`) | Chat phrases errors conversationally; kiosk shows short messages |
 | `tickets.qr_token`, `tickets.status`, `tickets.checked_in_at`, `admits` | Check-in |
 | `users.role` already allows `STAFF` | Staff check-in |
@@ -525,8 +594,10 @@ chat_messages      id, session_id FK, role (USER|ASSISTANT|TOOL), content, widge
                    intent, engine (RULE|CACHE|FAQ|LLM), tokens_in, tokens_out, cost_micros, created_at
 faq_entries        id, code, active, is_seed  + faq_translations (faq_id, locale, question, answer)
 faq_embeddings     faq_id, locale, embedding vector(…)        -- pgvector extension
-llm_usage_daily    date, tokens_in, tokens_out, cost_micros    -- budget cap
+llm_usage_daily    date, tokens_in, tokens_out, cost_micros    -- reporting (live counters in Redis)
 ```
+
+**New Redis keys (future):** `cb:chat:cache:<locale>:<hash(normalized question)>` (answer cache, TTL 24 h), `cb:chat:budget:<yyyy-mm-dd>` (cost counter, `INCRBY`, checked before each LLM call), `cb:chat:session:<id>` (recent turns + summary, TTL 2 h), `cb:chat:rl:<ip|user>` (Bucket4j).
 
 **Tools exposed to the LLM.** Each tool is a thin adapter over an existing application service:
 
@@ -576,11 +647,14 @@ src/
   components/ui/     shadcn components (from the prototype)
   components/layout/ Nav, Footer, LanguageSwitcher, AdminSidebar
   lib/               api client (axios + refresh interceptor + booking-token header), money, dates, errors→i18n
-  i18n/              vi.json, en.json
+  i18n/              locales/{vi,en}/<namespace>.json   (common, errors, catalog, booking, checkout, account, admin…)
+  mocks/             MSW handlers per feature (built from the contract)
   styles/            theme.css (design tokens), fonts.css, tailwind.css
 ```
 
-- **API client:** attaches `Authorization`, `Accept-Language`, `X-Booking-Token` (when the URL is booking-scoped) and `X-Requested-With`. On 401 it performs one shared refresh and retries once.
+- **API client:** attaches `Authorization`, `Accept-Language`, `X-Booking-Token` (when the URL is booking-scoped), `X-Client-Id` (persistent UUID from `localStorage`) and `X-Requested-With`. On 401 it performs one shared refresh and retries once.
+- **Types:** generated from `docs/api/openapi.yaml` with `openapi-typescript` into `src/lib/api/schema.d.ts`. Hand-written API types are not allowed.
+- **Mocks:** MSW handlers per feature (`src/mocks/handlers/<feature>.ts`) built from the contract examples, so frontend work can proceed before the backend endpoint exists.
 - **Booking store (Zustand, persisted in `sessionStorage`):** `showtimeId`, counts, selected seats, `bookingId`, `bookingToken`, `holdExpiresAt`. It survives reloads and language switches (`FR-I18N-03`).
 - **Code splitting:** admin, and later kiosk, staff and chat widget, are lazy-loaded so the public bundle stays small.
 
@@ -589,6 +663,7 @@ src/
 | Variable | Purpose |
 | --- | --- |
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | PostgreSQL |
+| `REDIS_URL` | Redis (`redis://` locally, `rediss://` for TLS hosts such as Upstash) |
 | `JWT_SECRET` | HS256 key (≥ 256 bits) |
 | `APP_PUBLIC_URL`, `API_PUBLIC_URL` | Redirect and return URLs, CORS |
 | `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_PAY_URL`, `VNPAY_QUERY_URL` | Sandbox credentials |
@@ -600,14 +675,16 @@ src/
 
 Business values (prices, hold minutes, VIP threshold…) live in `pricing_policies`, not in environment variables, so admin can change them (`[Config]` in `RULES.md`).
 
-Profiles: `local` (Docker Compose DB, Mock payment by default), `test` (Testcontainers), `prod`.
+Profiles: `local` (Docker Compose PostgreSQL + Redis, Mock payment by default), `test` (Testcontainers PostgreSQL + Redis), `prod`.
 
 ## 13. Testing Strategy
 
 | Level | Scope |
 | --- | --- |
 | Domain unit tests | `OrphanSeatRule` (shared fixture `orphan-rule-cases.json`, `ER-20`), `PriceCalculator`, VIP evaluation, VNPay signing |
-| Service integration (Testcontainers) | Concurrent holds (20 threads, 1 winner), neighbouring-seat race, duplicate IPN, late IPN (both branches), overlap constraint, rolling generator idempotency, refresh-token reuse |
+| Redis integration (Testcontainers `redis:7`) | Every Lua script; concurrent holds (20 threads, 1 winner); neighbouring-seat race (A3/A5); version-conflict retry; TTL expiry frees seats; release deletes only own keys; sold-mirror load and reconcile |
+| Cross-store integration (Testcontainers PG + Redis) | Duplicate IPN; late IPN (both branches); Redis stopped → `503` on hold, confirmation still correct via PG primary key; `mark_sold` failure repaired by the reconcile job |
+| Other integration | Overlap constraint, rolling generator idempotency, refresh-token reuse |
 | Web layer (MockMvc) | Auth rules, booking token, admin role, error code mapping |
 | Frontend (Vitest) | Orphan rule with the same fixture, price display, booking store, API error mapping |
 | E2E (optional, Playwright) | Guest booking with Demo Pay; member checkout skips step 1 |
@@ -619,6 +696,7 @@ flowchart LR
     B[Browser] --> V[Vercel / Netlify<br/>static SPA]
     V -- "rewrite /api/*" --> A[Backend container<br/>Railway / Fly.io / Render]
     A --> P[(Neon / Supabase<br/>PostgreSQL)]
+    A --> R[(Upstash / host Redis<br/>TLS, persistence on)]
     A --> M[SMTP Brevo / Resend]
     A <--> N[VNPay sandbox]
 ```
@@ -632,11 +710,13 @@ flowchart LR
 | ADR | Decision | Rationale |
 | --- | --- | --- |
 | 001 | Modular monolith, package-by-feature | Small team, one deployable unit, clear boundaries for future chat/kiosk |
-| 002 | PostgreSQL row locks for seat holds, no Redis | One source of truth, transactional with bookings, fewer moving parts |
-| 003 | Per-showtime seat rows (`showtime_seats`) | Simple and fast availability, natural lock target, primary key prevents double sale |
+| 002 | **Redis for holds, PostgreSQL for sales** | Native TTL, atomic Lua scripts, fast seat maps, pub/sub for real-time and multi-instance; PostgreSQL primary key stays the final guarantee (§6) |
+| 003 | `sold_seats` table instead of one row per seat per showtime | Only sales need durability; holds are temporary and live in Redis |
+| 003a | Optimistic row versions instead of a distributed lock | No lock leases or timeouts; the orphan rule stays in Java only |
 | 004 | Hold on seat confirmation, 10 min | Avoids lock spam and last-step seat loss (`BR-09`) |
 | 005 | IPN-only confirmation + reconciliation | Browser redirects are not trustworthy |
 | 006 | JWT access + rotating refresh with reuse detection | Stateless API with revocable sessions |
 | 007 | Booking token for booking-scoped access | Supports guests, chat handoff and kiosk uniformly |
 | 008 | Rolling templates + nightly reset | Demo is always alive and admin features stay real |
 | 009 | Error codes, client-side translation | One API for web, chat and kiosk in two languages |
+| 010 | Contract-first API (`docs/api/openapi.yaml`), generated TS types, MSW mocks | Frontend and backend (and parallel agents) build against one frozen contract |
